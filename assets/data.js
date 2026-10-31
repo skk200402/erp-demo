@@ -490,7 +490,7 @@
     ],
     stats: [
       { label: '已授权店铺', value: '6', unit: '个', ico: 'shop', color: '#3568f0' },
-      { label: '今日抓单', value: '1,286', unit: '单', ico: 'doc', color: '#12b76a' },
+      { label: '今日抓单', value: function () { return String(todayOrdersOfShop('')); }, unit: '单', ico: 'doc', color: '#12b76a' },
       { label: '即将到期', value: '1', unit: '个', ico: 'clock', color: '#f79009' },
       { label: '同步失败', value: '0', unit: '次', ico: 'alert', color: '#7a5af8' }
     ],
@@ -505,7 +505,7 @@
       { title: '授权状态', cell: function (r) { return tag(r.auth, SHOP_COLOR[r.auth] || 'gray'); } },
       { title: '授权到期', cell: function (r) { return '<span style="color:' + (r.auth === '即将到期' ? '#b54708' : 'var(--text-2)') + '">' + r.expire + '</span>'; } },
       { title: '最后同步', cell: function (r) { return '<span class="cell-sub" style="margin:0">' + r.sync + '</span>'; } },
-      { title: '今日订单', cls: 't-right', cell: function (r) { return '<b class="num">' + num(r.today) + '</b>'; } },
+      { title: '今日订单', cls: 't-right', cell: function (r) { return '<b class="num">' + num(todayOrdersOfShop(r)) + '</b>'; } },
       { title: '在售商品', cls: 't-right', cell: function (r) { return '<span class="num">' + num(r.goods) + '</span>'; } },
       { title: '操作', cls: 't-right', cell: function (r) {
         return r.auth === '即将到期'
