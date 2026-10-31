@@ -119,6 +119,33 @@
   }
   window.stockOfProduct = stockOfProduct;
 
+  /* 在途数量统一从采购单派生 */
+  function inTransitOf(sku) { return store ? store.inTransit(sku) : 0; }
+  window.inTransitOf = inTransitOf;
+
+  /* 把采购单登记进 store：按商品生成明细，已入库的视为全部收齐 */
+  function seedPOs() {
+    PURCHASES.forEach(function (po, idx) {
+      if (po.status === '已取消') return;
+      var kinds = Math.max(1, po.kinds || 1);
+      var per = Math.floor(po.qty / kinds);
+      var lines = [], used = {};
+      for (var i = 0; i < kinds; i++) {
+        var p = PRODUCTS[(idx * 3 + i) % PRODUCTS.length];
+        var sku = null;
+        for (var j = 0; j < INVENTORY.length; j++) {
+          if (String(INVENTORY[j].sku).indexOf(p.code) === 0) { sku = INVENTORY[j].sku; break; }
+        }
+        if (!sku || used[sku]) continue;
+        used[sku] = 1;
+        lines.push({ sku: sku, qty: i === kinds - 1 ? po.qty - per * (kinds - 1) : per });
+      }
+      if (!lines.length) return;
+      var rec = store.addPO({ id: po.id, lines: lines });
+      if (po.status === '已入库') rec.lines.forEach(function (l) { l.received = l.qty; });
+    });
+  }
+
   /* 库存不足的商品数（低于 100 件视为预警，含断货） */
   function productsLowStock() {
     return PRODUCTS.filter(function (p) { return stockOfProduct(p.code).total < 100; }).length;
@@ -1002,6 +1029,8 @@
         })
       });
     });
+
+    seedPOs();
 
     // 3. 为已发货 / 已完成订单补录出库单与台账（历史数据）
     ORDERS.forEach(function (o, i) {
@@ -2367,13 +2396,58 @@
     });
   }
 
-  var NOTIFS = [
-    { id: 'n1', kind: '订单', ico: 'truck', color: '#3568f0', title: '3 笔订单超过 24 小时未发货', sub: 'SO202610300116 等', t: '10 分钟前', route: 'orders', read: false },
-    { id: 'n2', kind: '售后', ico: 'refresh', color: '#f04438', title: 'AS202610300028 退款即将超时', sub: '剩余 6 小时', t: '25 分钟前', route: 'aftersale', read: false },
-    { id: 'n3', kind: '库存', ico: 'alert', color: '#f79009', title: '4 个 SKU 已断货', sub: '加厚保温杯 500ml 等', t: '1 小时前', route: 'inventory', read: false },
-    { id: 'n4', kind: '物流', ico: 'truck', color: '#7a5af8', title: 'YT9902410 物流停滞超过 48 小时', sub: '武汉转运中心', t: '2 小时前', route: 'logistics', read: false },
-    { id: 'n5', kind: '财务', ico: 'wallet', color: '#12b76a', title: '京东账单存在 ¥886.60 差异', sub: '10 月上半月', t: '昨天 18:20', route: 'finance', read: false }
-  ];
+  /* 通知由业务事件产生：缺货、售后待处理、对账差异、采购到货 */
+  var NOTIFS = [];
+  var NOTICE_SEQ = 0;
+
+  function pushNotice(n) {
+    if (n.key) {
+      var dup = null;
+      NOTIFS.forEach(function (x) { if (x.key === n.key) dup = x; });
+      if (dup) { dup.t = '刚刚'; return dup; }
+    }
+    var item = {
+      id: 'n' + (++NOTICE_SEQ),
+      key: n.key || '',
+      kind: n.kind || '系统',
+      ico: n.ico || 'bell',
+      color: n.color || '#3568f0',
+      title: n.title,
+      sub: n.sub || '',
+      t: n.t || '刚刚',
+      route: n.route || 'dashboard',
+      read: false
+    };
+    NOTIFS.unshift(item);
+    if (NOTIFS.length > 12) NOTIFS.pop();
+    return item;
+  }
+
+  /* 进入系统时按当前数据生成一批待办通知 */
+  function refreshStockNotice() {
+    var out = INVENTORY.filter(function (r) { return r.avail === 0; });
+    if (!out.length) return;
+    pushNotice({ key: 'stock-out', kind: '库存', ico: 'alert', color: '#f04438', title: out.length + ' 个 SKU 已断货', sub: out[0].name, route: 'inventory', t: '刚刚' });
+  }
+
+  function seedNotices() {
+    var out = INVENTORY.filter(function (r) { return r.avail === 0; });
+    if (out.length) {
+      pushNotice({ key: 'stock-out', kind: '库存', ico: 'alert', color: '#f04438', title: out.length + ' 个 SKU 已断货', sub: out[0].name, route: 'inventory', t: '刚刚' });
+    }
+    var low = INVENTORY.filter(function (r) { return r.status === '预警'; });
+    if (low.length) {
+      pushNotice({ key: 'stock-low', kind: '库存', ico: 'alert', color: '#f79009', title: low.length + ' 个 SKU 低于安全库存', sub: low[0].name, route: 'inventory', t: '刚刚' });
+    }
+    var asOpen = AFTERSALES.filter(function (r) { return ['待审核', '待买家退货', '待收货'].indexOf(r.status) > -1; });
+    if (asOpen.length) {
+      pushNotice({ key: 'as-open', kind: '售后', ico: 'refresh', color: '#b54708', title: asOpen.length + ' 笔售后待处理', sub: asOpen[0].id + ' · ' + asOpen[0].type, route: 'aftersale', t: '刚刚' });
+    }
+    var waitReview = ORDERS.filter(function (o) { return o.status === '待审核'; });
+    if (waitReview.length) {
+      pushNotice({ key: 'order-review', kind: '订单', ico: 'doc', color: '#3568f0', title: waitReview.length + ' 笔订单待审单', sub: waitReview[0].id, route: 'orders', t: '刚刚' });
+    }
+  }
 
   function unreadCount() {
     return NOTIFS.filter(function (n) { return !n.read; }).length;
@@ -2593,15 +2667,13 @@
         ensureStock(sku, v.wh, p.name);
         try {
           var doc = store.receivePO({ poId: po.id, sku: sku, wh: v.wh, qty: qty, by: PROFILE.name });
-          var inv = INVENTORY.filter(function (r) { return r.sku === sku && r.wh === v.wh; })[0];
-          if (inv) {
-            inv.transit = Math.max(0, inv.transit - qty);
-            inv.time = '刚刚';
-          }
-          po.status = qty >= po.qty ? '已入库' : '部分到货';
+          var inv2 = INVENTORY.filter(function (r) { return r.sku === sku && r.wh === v.wh; })[0];
+          if (inv2) inv2.time = '刚刚';
+          po.status = store.poStatus(po.id) || (qty >= po.qty ? '已入库' : '部分到货');
           saveStore();
           syncFromStore();
           renderMain();
+          pushNotice({ key: 'po-' + po.id, kind: '采购', ico: 'cart', color: '#12b76a', title: '采购到货：' + p.name + ' × ' + qty, sub: '入库单 ' + doc.id, route: 'purchase', t: '刚刚' });
           toast('已入库 ' + qty + ' 件，入库单 ' + doc.id);
         } catch (e) {
           toast(e.message, 'err');
@@ -2849,6 +2921,7 @@
     try {
       var res = store.confirmPick(docId, { by: PROFILE.name });
       res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
+      refreshStockNotice();
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - res.orders.length);
@@ -2925,6 +2998,7 @@
     try {
       var res = store.ship(ids, { carrier: v.carrier, by: PROFILE.name });
       res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
+      refreshStockNotice();
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - ids.length);
@@ -4085,6 +4159,7 @@
 
   initStore();
   initSync();
+  seedNotices();
   render();
 
   if (!session) {
