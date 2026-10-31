@@ -662,6 +662,29 @@
     return rows;
   };
 
+  /* ---------------- 采购入库 ---------------- */
+
+  /** 采购收货：实收数量入库，生成入库单与台账 */
+  Store.prototype.receivePO = function (args) {
+    var qty = Number(args.qty);
+    if (!qty || qty <= 0) throw fail('BAD_QTY', '收货数量必须大于 0');
+    var at = args.at || new Date().toISOString();
+    var by = args.by || 'admin';
+    var docId = this.nextId('RK');
+    if (!this.stockRow(args.sku, args.wh)) this.setStock(args.sku, args.wh, 0, 0);
+    var mv = this._move({
+      sku: args.sku, wh: args.wh, qty: qty, type: 'PURCHASE_IN',
+      docId: docId, docType: 'IN', ref: args.poId || '', at: at, by: by
+    });
+    var doc = {
+      id: docId, type: 'IN', status: '已入库', sku: args.sku, wh: args.wh,
+      qty: qty, ref: args.poId || '', at: at, by: by,
+      lines: [{ sku: args.sku, wh: args.wh, qty: qty, balanceAfter: mv.after }]
+    };
+    this.state.docs.push(doc);
+    return doc;
+  };
+
   /* ---------------- 一致性自检（给测试和运维用） ---------------- */
 
   Store.prototype.audit = function () {
