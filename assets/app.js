@@ -145,7 +145,7 @@
     },
     cs: {
       label: '客服专员', desc: '订单查看 · 售后处理 · 仅本店铺数据',
-      menus: ['dashboard', 'orders', 'aftersale', 'profile', 'pda'],
+      menus: ['dashboard', 'orders', 'aftersale', 'profile'],
       shops: ['旗舰店'], whs: '*',
       perms: { 'order.review': false, 'order.ship': false, 'stock.adjust': false, 'cost.view': false, 'finance.entry': false }
     },
@@ -1094,6 +1094,13 @@
   /* 平台账单默认 = 系统应收 + 该店铺的已知差异（演示数据），也可手工录入覆盖 */
   var FIN_DELTA = { '京东自营店': 12.8, '拼多多店': -3.5 };
   var FIN_OVERRIDE = {};
+  try {
+    var savedFin = JSON.parse(localStorage.getItem('jy_erp_fin_v1') || '{}');
+    if (savedFin && typeof savedFin === 'object') FIN_OVERRIDE = savedFin;
+  } catch (e) { FIN_OVERRIDE = {}; }
+  function saveFinOverride() {
+    try { localStorage.setItem('jy_erp_fin_v1', JSON.stringify(FIN_OVERRIDE)); } catch (e) { /* ignore */ }
+  }
 
   function refundsByShop() {
     var map = {};
@@ -1468,9 +1475,13 @@
       { title: '状态', cell: function (r) { return tag(r.status, PO_COLOR[r.status] || 'gray'); } },
       { title: '预计到货', cell: function (r) { return '<span class="cell-sub" style="margin:0">' + r.eta + '</span>'; } },
       { title: '操作', cls: 't-right', cell: function (r) {
-        return r.status === '待审核'
-          ? '<button class="link" style="font-size:12.5px" data-action="po-audit" data-id="' + r.id + '">审核</button>'
-          : '<button class="link" style="font-size:12.5px" data-action="po-view" data-id="' + r.id + '">查看</button>';
+        if (r.status === '待审核') {
+          return '<button class="link" style="font-size:12.5px" data-action="po-audit" data-id="' + r.id + '">审核</button>';
+        }
+        if (r.status === '待供应商确认' || r.status === '待到货' || r.status === '部分到货') {
+          return '<button class="link" style="font-size:12.5px" data-action="po-receive" data-id="' + r.id + '">收货</button>';
+        }
+        return '<button class="link" style="font-size:12.5px" data-action="po-view" data-id="' + r.id + '">查看</button>';
       } }
     ],
     rows: PURCHASES
@@ -2863,6 +2874,7 @@
         if (!amount || amount <= 0) { toast('请填写有效的结算金额', 'err'); return false; }
         row.period = String(v.period).trim() || row.period;
         FIN_OVERRIDE[row.shop] = amount;
+        saveFinOverride();
         rebuildFinance();
         renderMain();
         var fresh = FINANCE.filter(function (r) { return r.shop === row.shop; })[0];
@@ -2914,6 +2926,7 @@
       var fixed = 0;
       FINANCE.forEach(function (r) {
         if (Math.abs(r.diff) >= 0.005) { FIN_OVERRIDE[r.shop] = r.system; fixed++; }
+      saveFinOverride();
       });
       rebuildFinance();
       renderMain();
@@ -3232,6 +3245,48 @@
         CREDS.password = String(v.pwd1);
         closeModal();
         toast('密码已更新，下次登录请使用新密码');
+      }
+    });
+  }
+
+  /* ---------- 采购收货 ---------- */
+  function poReceiveModal(id) {
+    var po = PURCHASES.filter(function (r) { return r.id === id; })[0];
+    if (!po) return;
+    var goodsOpts = PRODUCTS.map(function (p) { return { v: p.code, t: p.name }; });
+    openFormModal({
+      title: '采购收货 · ' + po.id,
+      desc: '实收数量入库后生成入库单，在途数量同步减少',
+      submitText: '确认入库',
+      fields: [
+        { key: 'goods', label: '收货商品', type: 'select', options: goodsOpts, span: 2, value: PRODUCTS[0].code },
+        { key: 'wh', label: '入库仓库', type: 'select', options: WAREHOUSES, value: '杭州主仓' },
+        { key: 'qty', label: '实收数量', type: 'number', required: true, value: po.qty }
+      ],
+      onSubmit: function (v) {
+        if (!store) { toast('数据层未就绪', 'err'); return false; }
+        var qty = Number(v.qty);
+        if (!qty || qty <= 0) { toast('收货数量必须大于 0', 'err'); return false; }
+        var p = PRODUCTS.filter(function (x) { return x.code === v.goods; })[0];
+        if (!p) { toast('商品不存在', 'err'); return false; }
+        var sku = resolveSkuFor({ name: p.name, spec: p.specs[0] });
+        ensureStock(sku, v.wh, p.name);
+        try {
+          var doc = store.receivePO({ poId: po.id, sku: sku, wh: v.wh, qty: qty, by: PROFILE.name });
+          var inv = INVENTORY.filter(function (r) { return r.sku === sku && r.wh === v.wh; })[0];
+          if (inv) {
+            inv.transit = Math.max(0, inv.transit - qty);
+            inv.time = '刚刚';
+          }
+          po.status = qty >= po.qty ? '已入库' : '部分到货';
+          saveStore();
+          syncFromStore();
+          renderMain();
+          toast('已入库 ' + qty + ' 件，入库单 ' + doc.id);
+        } catch (e) {
+          toast(e.message, 'err');
+          return false;
+        }
       }
     });
   }
@@ -3679,6 +3734,7 @@
       toast('已按补货建议生成采购单：' + rows.length + ' 种 / ' + qty + ' 件');
     },
     'po-audit': function (el) { poAudit(el.getAttribute('data-id')); },
+    'po-receive': function (el) { poReceiveModal(el.getAttribute('data-id')); },
     'po-view': function (el) { poView(el.getAttribute('data-id')); },
     'sup-new': function () { supNewModal(); },
     'inv-flow': function () { invFlowDrawer(INVENTORY[0].sku); },
@@ -3732,6 +3788,7 @@
       var shop = el.getAttribute('data-shop');
       var row = FINANCE.filter(function (r) { return r.shop === shop; })[0];
       if (row) FIN_OVERRIDE[shop] = row.system;
+      saveFinOverride();
       rebuildFinance();
       closeModal();
       renderMain();
@@ -3909,6 +3966,7 @@
         list: ['订单状态与物流单号', '库存数量与全部台账', '出库 / 调拨 / 盘点单据'],
         onConfirm: function () {
           try { localStorage.removeItem(STATE_KEY); } catch (e) { /* ignore */ }
+          try { localStorage.removeItem(SYNC_KEY); localStorage.removeItem('jy_erp_fin_v1'); } catch (e) { /* ignore */ }
           if (SEED_SNAPSHOT) {
             try {
               var snap = JSON.parse(SEED_SNAPSHOT);
@@ -4068,37 +4126,46 @@
   }
 
   /* ---------- 打印（隐藏 iframe，不污染主文档） ---------- */
+  var PRINT_CSS = 'body{font:13px/1.6 "PingFang SC","Microsoft YaHei",sans-serif;color:#111;margin:0;padding:16px;}' +
+    'h1{font-size:17px;margin:0 0 4px;}' +
+    '.meta{color:#666;font-size:12px;margin-bottom:12px;}' +
+    'table{width:100%;border-collapse:collapse;margin-top:6px;}' +
+    'th,td{border:1px solid #bbb;padding:6px 8px;font-size:12px;text-align:left;}' +
+    'th{background:#f2f2f2;}.right{text-align:right;}' +
+    '.sign{margin-top:24px;color:#444;font-size:12px;}' +
+    '.waybill{border:1px solid #333;padding:14px;margin-bottom:12px;page-break-after:always;}' +
+    '.waybill:last-child{page-break-after:auto;}' +
+    '.wb-top{display:flex;justify-content:space-between;border-bottom:1px dashed #999;padding-bottom:8px;margin-bottom:10px;}' +
+    '.wb-top b{font-size:16px;letter-spacing:2px;}' +
+    '.barcode{height:42px;margin-top:10px;background:repeating-linear-gradient(90deg,#111 0 2px,transparent 2px 4px,#111 4px 7px,transparent 7px 9px,#111 9px 10px,transparent 10px 12px);}' +
+    '@page{margin:12mm;}';
+
   function printHTML(title, bodyHTML) {
     var frame = document.createElement('iframe');
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    frame.setAttribute('aria-hidden', 'true');
     document.body.appendChild(frame);
+
     var doc = frame.contentWindow.document;
-    doc.open();
-    doc.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
-      'body{font:13px/1.6 "PingFang SC","Microsoft YaHei",sans-serif;color:#111;margin:0;padding:16px;}' +
-      'h1{font-size:17px;margin:0 0 4px;}' +
-      '.meta{color:#666;font-size:12px;margin-bottom:12px;}' +
-      'table{width:100%;border-collapse:collapse;margin-top:6px;}' +
-      'th,td{border:1px solid #bbb;padding:6px 8px;font-size:12px;text-align:left;}' +
-      'th{background:#f2f2f2;}.right{text-align:right;}' +
-      '.sign{margin-top:24px;color:#444;font-size:12px;}' +
-      '.waybill{border:1px solid #333;padding:14px;margin-bottom:12px;page-break-after:always;}' +
-      '.waybill:last-child{page-break-after:auto;}' +
-      '.wb-top{display:flex;justify-content:space-between;border-bottom:1px dashed #999;padding-bottom:8px;margin-bottom:10px;}' +
-      '.wb-top b{font-size:16px;letter-spacing:2px;}' +
-      '.barcode{height:42px;margin-top:10px;background:repeating-linear-gradient(90deg,#111 0 2px,transparent 2px 4px,#111 4px 7px,transparent 7px 9px,#111 9px 10px,transparent 10px 12px);}' +
-      '@page{margin:12mm;}' +
-      '</style></head><body>' + bodyHTML + '</body></html>');
-    doc.close();
+    doc.title = title;
+    var style = doc.createElement('style');
+    style.textContent = PRINT_CSS;
+    doc.head.appendChild(style);
+
+    var wrap = doc.createElement('div');
+    wrap.innerHTML = bodyHTML;
+    doc.body.appendChild(wrap);
+
     setTimeout(function () {
       try {
         frame.contentWindow.focus();
         frame.contentWindow.print();
-      } catch (e) { toast('打印失败：' + e.message, 'err'); }
+      } catch (e) {
+        toast('打印失败：' + e.message, 'err');
+      }
       setTimeout(function () { if (frame.parentNode) frame.parentNode.removeChild(frame); }, 1500);
-    }, 250);
+    }, 220);
   }
-
   /* ---------- 平台对接页 ---------- */
   function platformHTML() {
     var st = sync ? sync.stats() : { total: 0, pending: 0, done: 0, dead: 0, retrying: 0 };
@@ -4702,6 +4769,7 @@
   /* 后台自动重试：到期任务每 5 秒尝试一次 */
   setInterval(function () {
     if (!sync) return;
+    if (document.hidden) return;
     if (!sync.due().length) return;
     drainSync();
     if (ui.route === 'platform') renderMain();
