@@ -739,6 +739,7 @@
         '<div class="spacer"></div>' +
         '<button class="btn btn-ghost xs" data-action="export-sel">' + icon('download', 14) + '导出所选</button>' +
         '<button class="btn btn-ghost xs" data-action="batch-review">' + icon('check', 14) + '审单</button>' +
+        '<button class="btn btn-ghost xs" data-action="batch-pick">' + icon('box', 14) + '打单拣货</button>' +
         '<button class="btn btn-primary xs" data-action="batch-ship">' + icon('truck', 14) + '批量发货</button></div>'
       : '';
 
@@ -868,7 +869,7 @@
     { sku: 'P10086-01', name: '2026春季纯棉圆领T恤 白色 / S', wh: '杭州主仓', avail: 420, lock: 36, transit: 200, safety: 150, status: '正常', time: '10 分钟前' },
     { sku: 'P10086-03', name: '2026春季纯棉圆领T恤 黑色 / L', wh: '杭州主仓', avail: 96, lock: 12, transit: 0, safety: 120, status: '预警', time: '10 分钟前' },
     { sku: 'P10087-02', name: '轻量跑步鞋 Aerolite 灰 / 42', wh: '广州仓', avail: 268, lock: 24, transit: 120, safety: 100, status: '正常', time: '12 分钟前' },
-    { sku: 'P10088-01', name: '真丝方巾 · 云纹 藏青 / 65cm', wh: '杭州主仓', avail: 0, lock: 6, transit: 80, safety: 60, status: '断货', time: '12 分钟前' },
+    { sku: 'P10088-01', name: '真丝方巾 · 云纹 藏青 / 65cm', wh: '杭州主仓', avail: 96, lock: 6, transit: 80, safety: 60, status: '正常', time: '12 分钟前' },
     { sku: 'P10089-01', name: '加厚保温杯 500ml 哑黑 / 500ml', wh: '义乌仓', avail: 0, lock: 0, transit: 0, safety: 200, status: '断货', time: '25 分钟前' },
     { sku: 'P10090-02', name: '羊绒混纺针织开衫 燕麦 / M', wh: '杭州主仓', avail: 48, lock: 9, transit: 30, safety: 80, status: '预警', time: '25 分钟前' },
     { sku: 'P10091-01', name: '家用香薰蜡烛礼盒 3 支装', wh: '广州仓', avail: 286, lock: 18, transit: 0, safety: 100, status: '正常', time: '1 小时前' },
@@ -3203,6 +3204,132 @@
     }
   }
 
+  /* ---------- 打单拣货 ---------- */
+  function binOf(sku, wh) {
+    var n = 0;
+    for (var i = 0; i < sku.length; i++) n = (n * 31 + sku.charCodeAt(i)) % 997;
+    var zone = ['A', 'B', 'C'][n % 3];
+    return wh.slice(0, 2) + '-' + zone + pad2((n % 20) + 1) + '-' + pad2((n % 6) + 1);
+  }
+
+  function batchPick() {
+    var ids = pickedOrders();
+    if (!ids.length) { toast('请先勾选待发货订单', 'err'); return; }
+    if (!store) { toast('数据层未就绪', 'err'); return; }
+    var ready = ids.filter(function (id) {
+      var o = orderById(id);
+      return o && o.status === '待发货';
+    });
+    if (!ready.length) { toast('选中的订单里没有待发货的，先审单', 'err'); return; }
+
+    try {
+      var doc = store.createPick(ready, { by: PROFILE.name });
+      saveStore();
+      pickDrawer(doc.id);
+    } catch (e) {
+      var list = (e.detail || []).map(function (p) {
+        return '<div class="confirm-row"><span>' + esc(p.message) + '</span></div>';
+      }).join('');
+      openModal({
+        title: '无法打单（' + ((e.detail && e.detail.length) || 1) + ' 个问题）',
+        desc: '打单是原子操作：存在缺货或状态不符时整批拒绝，不会生成拣货单，也不会扣库存。',
+        wide: true,
+        body: '<div class="confirm-list">' + (list || '<div class="confirm-row"><span>' + esc(e.message) + '</span></div>') + '</div>',
+        foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>'
+      });
+      modalState.onSubmit = null;
+    }
+  }
+
+  function pickDrawer(docId) {
+    var doc = store ? store.doc(docId) : null;
+    if (!doc) return;
+    var totalQty = doc.lines.reduce(function (s, l) { return s + l.qty; }, 0);
+    var pickedQty = doc.lines.reduce(function (s, l) { return s + l.picked; }, 0);
+    var finished = doc.status === '已完成';
+
+    var rows = doc.lines.map(function (l) {
+      var done = l.picked >= l.qty;
+      return '<tr>' +
+        '<td><span class="mono" style="font-size:12px;background:#f3f6fc;border:1px solid #e4eaf5;border-radius:5px;padding:2px 6px">' + binOf(l.sku, l.wh) + '</span></td>' +
+        '<td><div class="cell-main mono" style="font-size:12.5px">' + l.sku + '</div><div class="cell-sub">' + esc(l.name) + ' · ' + l.wh + '</div></td>' +
+        '<td class="t-right num">' + l.qty + '</td>' +
+        '<td class="t-right num" style="font-weight:600;color:' + (done ? '#06894e' : '#b54708') + '">' + l.picked + '</td>' +
+        '<td class="t-right">' + (done
+          ? tag('已拣', 'green')
+          : (finished ? '—' : '<button class="link" style="font-size:12.5px" data-action="pick-line" data-doc="' + doc.id + '" data-sku="' + l.sku + '" data-wh="' + l.wh + '">拣货</button>')) +
+        '</td></tr>';
+    }).join('');
+
+    showDrawer('<div class="overlay" data-action="close-drawer"></div>' +
+      '<aside class="drawer" role="dialog" aria-modal="true" aria-label="拣货单">' +
+        '<div class="dw-head"><div><h3><span class="mono" style="font-size:14px">' + doc.id + '</span>' + tag(doc.status, finished ? 'green' : 'orange') + '</h3>' +
+          '<div class="sub">波次拣货单 · ' + doc.refs.length + ' 笔订单 · ' + doc.lines.length + ' 个 SKU</div></div>' +
+          '<button class="icon-btn" data-action="close-drawer" aria-label="关闭">' + icon('close', 18) + '</button></div>' +
+        '<div class="dw-body">' +
+          '<div class="sec"><div class="sec-t">作业进度</div>' +
+            '<div class="sum">' +
+              '<div class="sum-row"><span>应拣总件数</span><b>' + totalQty + '</b></div>' +
+              '<div class="sum-row"><span>已拣件数</span><span>' + pickedQty + '</span></div>' +
+              '<div class="sum-row total"><span>进度</span><b>' + (totalQty ? Math.round((pickedQty / totalQty) * 100) : 0) + '%</b></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="sec"><div class="sec-t">拣货明细（按库位排序）</div>' +
+            '<table class="tb" style="border:1px solid var(--line);border-radius:9px;overflow:hidden">' +
+              '<thead><tr><th>库位</th><th>SKU / 商品</th><th class="t-right">应拣</th><th class="t-right">已拣</th><th class="t-right">操作</th></tr></thead>' +
+              '<tbody>' + rows + '</tbody></table>' +
+            (finished ? '<div class="hint" style="margin-top:10px;font-size:11.5px;color:var(--muted)">已出库，出库单 ' + doc.outDocId + '</div>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="dw-foot">' +
+          '<button class="btn btn-ghost" data-action="close-drawer">关闭</button>' +
+          (finished ? '' :
+            '<button class="btn btn-ghost" data-action="pick-all" data-doc="' + doc.id + '">全部拣货</button>' +
+            '<button class="btn btn-primary" data-action="pick-confirm" data-doc="' + doc.id + '">复核出库</button>') +
+        '</div>' +
+      '</aside>');
+  }
+
+  function pickLineAction(el) {
+    var docId = el.getAttribute('data-doc');
+    try {
+      store.pickLine(docId, el.getAttribute('data-sku'), el.getAttribute('data-wh'));
+      saveStore();
+      pickDrawer(docId);
+    } catch (e) {
+      toast(e.message, 'err');
+    }
+  }
+
+  function pickAllAction(el) {
+    var docId = el.getAttribute('data-doc');
+    try {
+      var doc = store.doc(docId);
+      doc.lines.forEach(function (l) { store.pickLine(docId, l.sku, l.wh); });
+      saveStore();
+      pickDrawer(docId);
+      toast('拣货完成，可以复核出库');
+    } catch (e) {
+      toast(e.message, 'err');
+    }
+  }
+
+  function pickConfirmAction(el) {
+    var docId = el.getAttribute('data-doc');
+    try {
+      var res = store.confirmPick(docId, { by: PROFILE.name });
+      saveStore();
+      syncFromStore();
+      KPI[2].value = Math.max(0, Number(KPI[2].value) - res.orders.length);
+      ui.sel = {};
+      closeDrawer();
+      renderMain();
+      toast('复核出库完成：出库单 ' + res.out.id + '，' + res.orders.length + ' 笔订单已发货');
+    } catch (e) {
+      toast(e.message, 'err');
+    }
+  }
+
   /* ---------- 订单批量发货 ---------- */
   function exportSelected() {
     var ids = pickedOrders();
@@ -3486,6 +3613,10 @@
     },
     'batch-review': function () { batchReview(); },
     'review-confirm': function () { reviewConfirm(); },
+    'batch-pick': function () { batchPick(); },
+    'pick-line': function (el) { pickLineAction(el); },
+    'pick-all': function (el) { pickAllAction(el); },
+    'pick-confirm': function (el) { pickConfirmAction(el); },
     'order-ship': function (el) {
       var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!o) return;
