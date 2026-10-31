@@ -139,19 +139,19 @@
     },
     ops: {
       label: '运营主管', desc: '订单 / 商品 / 库存 / 分销 · 成本价隐藏',
-      menus: ['dashboard', 'orders', 'aftersale', 'products', 'inventory', 'purchase', 'suppliers', 'logistics', 'shops', 'distribution', 'finance', 'profile'],
+      menus: ['dashboard', 'orders', 'aftersale', 'products', 'inventory', 'purchase', 'suppliers', 'logistics', 'shops', 'distribution', 'platform', 'finance', 'profile', 'pda'],
       shops: '*', whs: '*',
       perms: { 'order.review': true, 'order.ship': true, 'stock.adjust': true, 'cost.view': false, 'finance.entry': false }
     },
     cs: {
       label: '客服专员', desc: '订单查看 · 售后处理 · 仅本店铺数据',
-      menus: ['dashboard', 'orders', 'aftersale', 'profile'],
+      menus: ['dashboard', 'orders', 'aftersale', 'profile', 'pda'],
       shops: ['旗舰店'], whs: '*',
       perms: { 'order.review': false, 'order.ship': false, 'stock.adjust': false, 'cost.view': false, 'finance.entry': false }
     },
     wh: {
       label: '仓储管理员', desc: '订单发货 / 拣货 / 库存 · 仅本仓数据',
-      menus: ['dashboard', 'orders', 'inventory', 'logistics', 'purchase', 'profile'],
+      menus: ['dashboard', 'orders', 'inventory', 'logistics', 'purchase', 'profile', 'pda'],
       shops: '*', whs: ['杭州主仓'],
       perms: { 'order.review': false, 'order.ship': true, 'stock.adjust': true, 'cost.view': false, 'finance.entry': false }
     }
@@ -423,7 +423,8 @@
     ] },
     { group: '渠道', items: [
       { key: 'shops', label: '店铺管理', ico: 'shop' },
-      { key: 'distribution', label: '分销管理', ico: 'users' }
+      { key: 'distribution', label: '分销管理', ico: 'users' },
+      { key: 'platform', label: '平台对接', ico: 'refresh' }
     ] },
     { group: '财务', items: [{ key: 'finance', label: '对账中心', ico: 'wallet' }] },
     { group: '系统', items: [{ key: 'settings', label: '系统设置', ico: 'gear' }] }
@@ -572,12 +573,14 @@
     distribution: ['渠道', '分销管理'],
     finance: ['财务', '对账中心'],
     settings: ['系统', '系统设置'],
-    profile: ['账号', '个人中心']
+    profile: ['账号', '个人中心'],
+    platform: ['渠道', '平台对接'],
+    pda: ['作业', '扫码作业']
   };
 
   function shellHTML() {
     var crumb = ROUTE_TITLE[ui.route] || ['概览', '工作台'];
-    return '<div class="shell' + (ui.collapsed ? ' collapsed' : '') + '">' +
+    return '<div class="shell' + (ui.collapsed ? ' collapsed' : '') + (ui.route === 'pda' ? ' pda-mode' : '') + '">' +
       '<aside class="sidebar">' +
         '<div class="sb-logo">' +
           '<div class="logo-mark">' + icon('layers', 18) + '</div>' +
@@ -606,6 +609,7 @@
             '<div class="menu">' +
               '<div class="menu-head"><b>' + esc(PROFILE.account) + '</b><span>上次登录：今天 09:12</span></div>' +
               '<button class="menu-item" data-action="nav" data-route="profile">' + icon('user', 15) + '个人中心</button>' +
+              '<button class="menu-item" data-action="nav" data-route="pda">' + icon('print', 15) + '扫码作业（PDA）</button>' +
               '<button class="menu-item" data-action="nav" data-route="settings">' + icon('gear', 15) + '系统设置</button>' +
               '<div class="menu-line"></div>' +
               '<div class="menu-head" style="padding:6px 10px 4px"><span>演示角色 · 切换看权限差异</span></div>' +
@@ -803,6 +807,7 @@
         '<button class="btn btn-ghost xs" data-action="export-sel">' + icon('download', 14) + '导出所选</button>' +
         (can('order.review') ? '<button class="btn btn-ghost xs" data-action="batch-review">' + icon('check', 14) + '审单</button>' : '') +
         (can('order.ship') ? '<button class="btn btn-ghost xs" data-action="batch-pick">' + icon('box', 14) + '打单拣货</button>' : '') +
+        (can('order.ship') ? '<button class="btn btn-ghost xs" data-action="print-waybill">' + icon('print', 14) + '打印面单</button>' : '') +
         (can('order.ship') ? '<button class="btn btn-primary xs" data-action="batch-ship">' + icon('truck', 14) + '批量发货</button>' : '') + '</div>'
       : '';
 
@@ -2590,6 +2595,7 @@
           saveStore();
           syncFromStore();
           renderMain();
+          pushStock(doc.id, sku, v.to, qty);
           toast('调拨完成，调拨单 ' + doc.id);
         } catch (e) {
           toast(e.message, 'err');
@@ -3438,6 +3444,7 @@
         '<div class="dw-foot">' +
           '<button class="btn btn-ghost" data-action="close-drawer">关闭</button>' +
           (finished ? '' :
+            '<button class="btn btn-ghost" data-action="print-pick" data-doc="' + doc.id + '">打印拣货单</button>' +
             '<button class="btn btn-ghost" data-action="pick-all" data-doc="' + doc.id + '">全部拣货</button>' +
             '<button class="btn btn-primary" data-action="pick-confirm" data-doc="' + doc.id + '">复核出库</button>') +
         '</div>' +
@@ -3472,6 +3479,7 @@
     var docId = el.getAttribute('data-doc');
     try {
       var res = store.confirmPick(docId, { by: PROFILE.name });
+      res.orders.forEach(function (o) { pushTracking(o); });
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - res.orders.length);
@@ -3547,6 +3555,7 @@
     if (!store) { toast('数据层未就绪，无法发货', 'err'); return false; }
     try {
       var res = store.ship(ids, { carrier: v.carrier, by: PROFILE.name });
+      res.orders.forEach(function (o) { pushTracking(o); });
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - ids.length);
@@ -3837,6 +3846,59 @@
       render();
       toast('已切换到「' + ROLES[code].label + '」：' + ROLES[code].desc);
     },
+    'sync-mode': function (el) {
+      NET_MODE = el.getAttribute('data-mode') || 'normal';
+      toast(NET_MODE === 'normal' ? '网络已恢复正常'
+        : NET_MODE === 'flaky' ? '已注入限流：每 3 次请求返回 1 次 429'
+          : '已模拟断网：所有请求超时');
+      if (ui.route === 'platform') renderMain();
+    },
+    'sync-drain': function () {
+      if (!sync) { toast('同步引擎未就绪', 'err'); return; }
+      var r = drainSync();
+      if (ui.route === 'platform') renderMain();
+      toast('同步完成：成功 ' + r.done + '，死信 ' + r.dead);
+    },
+    'sync-retry': function (el) {
+      var id = el.getAttribute('data-id');
+      if (sync && sync.retry(id)) { saveSync(); renderMain(); toast('已重新加入队列：' + id); }
+    },
+    'sync-retry-all': function () {
+      var n = sync ? sync.retryAllDead() : 0;
+      saveSync(); renderMain();
+      toast('已重新入队 ' + n + ' 个死信任务');
+    },
+    'pda-ship': function (el) {
+      var id = el.getAttribute('data-id');
+      if (!store) { toast('数据层未就绪', 'err'); return; }
+      try {
+        var res = store.ship([id], { carrier: '顺丰速运', by: PROFILE.name });
+        saveStore();
+        syncFromStore();
+        pushTracking(orderById(id));
+        toast('已发货 ' + id + '，出库单 ' + res.doc.id);
+        render();
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    },
+    'pda-scan': function () {
+      var input = document.getElementById('pda-input');
+      var v = input ? String(input.value || '').trim() : '';
+      if (!v) { toast('请输入或扫描订单号', 'err'); return; }
+      var ord = orderById(v) || ORDERS.filter(function (o) { return o.express && o.express.indexOf(v) > -1; })[0];
+      if (!ord) { toast('未找到订单 ' + v, 'err'); return; }
+      if (ord.status !== '待发货') { toast('订单 ' + ord.id + ' 当前为「' + ord.status + '」，不能发货', 'err'); return; }
+      var card = document.querySelector('[data-order="' + ord.id + '"]');
+      if (card) {
+        card.classList.add('pda-hit');
+        card.scrollIntoView({ block: 'center' });
+        setTimeout(function () { card.classList.remove('pda-hit'); }, 1800);
+      }
+      toast('定位到订单 ' + ord.id);
+    },
+    'print-pick': function (el) { printPick(el.getAttribute('data-doc')); },
+    'print-waybill': function () { printWaybills(pickedOrders()); },
     'member-new': function () { memberNewModal(); },
     'reset-demo': function () {
       openConfirmModal({
@@ -3932,6 +3994,242 @@
     }
   };
 
+  /* ============================================================
+     平台接口层：同步引擎（assets/sync.js）
+     ============================================================ */
+  var SYNC_KEY = 'jy_erp_sync_v1';
+  var sync = null;
+  var NET_MODE = 'normal';
+  var netCounter = 0;
+
+  var JOB_LABEL = {
+    PUSH_TRACKING: '运单号回传',
+    PUSH_STOCK: '库存同步',
+    PULL_ORDERS: '订单抓取'
+  };
+
+  function platformTransport(job) {
+    netCounter++;
+    if (NET_MODE === 'down') {
+      return { ok: false, error: '连接超时：ECONNRESET（模拟断网）', retryable: true };
+    }
+    if (NET_MODE === 'flaky') {
+      if (netCounter % 3 === 0) return { ok: false, error: '429 Too Many Requests', retryAfter: 4000 };
+      if (netCounter % 5 === 0) return { ok: false, error: '502 Bad Gateway', retryable: true };
+    }
+    if (job.type === 'PUSH_TRACKING' && !job.payload.trackingNo) {
+      return { ok: false, error: '平台返回 400：缺少运单号', retryable: false };
+    }
+    return { ok: true, platformId: 'PL' + (100000 + netCounter) };
+  }
+
+  function initSync() {
+    try {
+      sync = new ERPSync({ transport: platformTransport, maxAttempts: 4, baseDelay: 3000 });
+      var saved = null;
+      try { saved = localStorage.getItem(SYNC_KEY); } catch (e) { saved = null; }
+      if (saved) sync.load(saved);
+    } catch (e) {
+      sync = null;
+    }
+  }
+
+  function saveSync() {
+    if (!sync) return;
+    try { localStorage.setItem(SYNC_KEY, sync.dump()); } catch (e) { /* ignore */ }
+  }
+
+  function pushTracking(o) {
+    if (!sync || !o) return;
+    var parts = String(o.express || '').split(' ');
+    sync.enqueue({
+      type: 'PUSH_TRACKING', ref: o.id,
+      idemKey: o.id + ':' + (parts[1] || ''),
+      payload: { orderId: o.id, shop: o.shop, carrier: parts[0] || '', trackingNo: parts[1] || '' }
+    });
+    saveSync();
+  }
+
+  function pushStock(ref, sku, wh, qty) {
+    if (!sync) return;
+    sync.enqueue({
+      type: 'PUSH_STOCK', ref: ref,
+      idemKey: 'STOCK:' + ref + ':' + sku + ':' + wh + ':' + qty,
+      payload: { sku: sku, wh: wh, qty: qty }
+    });
+    saveSync();
+  }
+
+  function drainSync() {
+    if (!sync) return { done: 0, dead: 0 };
+    var r = sync.drain();
+    saveSync();
+    return r;
+  }
+
+  /* ---------- 打印（隐藏 iframe，不污染主文档） ---------- */
+  function printHTML(title, bodyHTML) {
+    var frame = document.createElement('iframe');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(frame);
+    var doc = frame.contentWindow.document;
+    doc.open();
+    doc.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
+      'body{font:13px/1.6 "PingFang SC","Microsoft YaHei",sans-serif;color:#111;margin:0;padding:16px;}' +
+      'h1{font-size:17px;margin:0 0 4px;}' +
+      '.meta{color:#666;font-size:12px;margin-bottom:12px;}' +
+      'table{width:100%;border-collapse:collapse;margin-top:6px;}' +
+      'th,td{border:1px solid #bbb;padding:6px 8px;font-size:12px;text-align:left;}' +
+      'th{background:#f2f2f2;}.right{text-align:right;}' +
+      '.sign{margin-top:24px;color:#444;font-size:12px;}' +
+      '.waybill{border:1px solid #333;padding:14px;margin-bottom:12px;page-break-after:always;}' +
+      '.waybill:last-child{page-break-after:auto;}' +
+      '.wb-top{display:flex;justify-content:space-between;border-bottom:1px dashed #999;padding-bottom:8px;margin-bottom:10px;}' +
+      '.wb-top b{font-size:16px;letter-spacing:2px;}' +
+      '.barcode{height:42px;margin-top:10px;background:repeating-linear-gradient(90deg,#111 0 2px,transparent 2px 4px,#111 4px 7px,transparent 7px 9px,#111 9px 10px,transparent 10px 12px);}' +
+      '@page{margin:12mm;}' +
+      '</style></head><body>' + bodyHTML + '</body></html>');
+    doc.close();
+    setTimeout(function () {
+      try {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      } catch (e) { toast('打印失败：' + e.message, 'err'); }
+      setTimeout(function () { if (frame.parentNode) frame.parentNode.removeChild(frame); }, 1500);
+    }, 250);
+  }
+
+  /* ---------- 平台对接页 ---------- */
+  function platformHTML() {
+    var st = sync ? sync.stats() : { total: 0, pending: 0, done: 0, dead: 0, retrying: 0 };
+    var jobs = sync ? sync.jobs.slice().reverse().slice(0, 20) : [];
+    var logs = sync ? sync.logs.slice(0, 12) : [];
+
+    var shopRows = SHOPS.map(function (s) {
+      var okCount = 0, failCount = 0;
+      (sync ? sync.jobs : []).forEach(function (j) {
+        var ps = (j.payload && j.payload.shop) || '';
+        if (ps && (s.name.indexOf(ps) > -1 || ps.indexOf(s.name) > -1)) {
+          if (j.status === 'done') okCount++;
+          if (j.status === 'dead') failCount++;
+        }
+      });
+      return '<tr><td>' + platDot(s.plat) + '<div class="cell-sub">' + s.name + '</div></td>' +
+        '<td>' + tag(s.auth, SHOP_COLOR[s.auth]) + '</td>' +
+        '<td class="cell-sub" style="margin:0">' + s.sync + '</td>' +
+        '<td class="t-right num">' + okCount + '</td>' +
+        '<td class="t-right num" style="color:' + (failCount ? '#d92d20' : 'var(--muted)') + '">' + failCount + '</td></tr>';
+    }).join('');
+
+    var jobRows = jobs.length ? jobs.map(function (j) {
+      var statusTag = j.status === 'done' ? tag('已送达', 'green')
+        : j.status === 'dead' ? tag('死信', 'red')
+          : (j.attempts > 0 ? tag('重试中', 'orange') : tag('待发送', 'gray'));
+      return '<tr><td class="mono" style="font-size:11.5px">' + j.id + '</td>' +
+        '<td>' + esc(JOB_LABEL[j.type] || j.type) + '<div class="cell-sub">' + esc(j.ref || '—') + '</div></td>' +
+        '<td>' + statusTag + '</td>' +
+        '<td class="t-right num">' + j.attempts + '</td>' +
+        '<td class="cell-sub" style="margin:0">' + (j.status === 'pending' && j.nextAt ? fmtTs(new Date(j.nextAt).toISOString()) : '—') + '</td>' +
+        '<td style="color:' + (j.lastError ? '#b42318' : 'var(--muted)') + ';max-width:210px;font-size:12px">' + esc(j.lastError || '—') + '</td>' +
+        '<td class="t-right">' + (j.status === 'dead' ? '<button class="link" style="font-size:12.5px" data-action="sync-retry" data-id="' + j.id + '">重试</button>' : '') + '</td></tr>';
+    }).join('') : '<tr><td colspan="7"><div class="empty" style="padding:26px"><h3 style="font-size:13px">队列为空</h3><p style="font-size:12px">发货、调拨、同步订单后，这里会出现推送到平台的任务</p></div></td></tr>';
+
+    var logRows = logs.length ? logs.map(function (l) {
+      var color = l.kind === 'dead' ? '#d92d20' : l.kind === 'retry' ? '#b54708' : l.kind === 'success' ? '#06894e' : 'var(--muted)';
+      return '<div class="log-row"><span class="mono" style="font-size:11px;color:#94a3b8;min-width:92px">' + fmtTs(new Date(l.at).toISOString()) + '</span>' +
+        '<b class="mono" style="font-size:11.5px">' + l.job + '</b>' +
+        '<span style="flex:1;color:var(--text-2);font-size:12px">' + esc(l.msg) + '</span>' +
+        '<span style="color:' + color + ';font-size:11.5px">' + esc(l.kind) + '</span></div>';
+    }).join('') : '<div class="empty" style="padding:22px"><p style="font-size:12px">暂无日志</p></div>';
+
+    return '<div class="page-head">' +
+        '<div><h1>平台对接</h1><p class="desc">订单抓取与状态回传的任务队列，支持限流退避、幂等去重与死信重试</p></div>' +
+        '<div class="head-actions">' +
+          '<button class="btn btn-ghost" data-action="sync-mode" data-mode="flaky">模拟限流</button>' +
+          '<button class="btn btn-ghost" data-action="sync-mode" data-mode="down">模拟断网</button>' +
+          '<button class="btn btn-ghost" data-action="sync-mode" data-mode="normal">恢复正常</button>' +
+          '<button class="btn btn-primary" data-action="sync-drain">' + icon('refresh', 15) + '立即同步</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stat-strip">' +
+        '<div class="stat"><span class="stat-ico" style="background:#eef3ff;color:#3568f0">' + icon('clock', 17) + '</span><div class="stat-txt"><span>待发送</span><b>' + st.pending + '<small>个</small></b></div></div>' +
+        '<div class="stat"><span class="stat-ico" style="background:#fff5e6;color:#f79009">' + icon('refresh', 17) + '</span><div class="stat-txt"><span>重试中</span><b>' + st.retrying + '<small>个</small></b></div></div>' +
+        '<div class="stat"><span class="stat-ico" style="background:#e8f9f0;color:#12b76a">' + icon('check', 17) + '</span><div class="stat-txt"><span>已送达</span><b>' + st.done + '<small>个</small></b></div></div>' +
+        '<div class="stat"><span class="stat-ico" style="background:#feecea;color:#f04438">' + icon('alert', 17) + '</span><div class="stat-txt"><span>死信</span><b>' + st.dead + '<small>个</small></b></div></div>' +
+      '</div>' +
+      '<div class="grid-2">' +
+        '<section class="card"><div class="card-head" style="padding-bottom:12px"><h3>任务队列<span class="hint">最近 20 条</span></h3>' +
+          (st.dead ? '<button class="btn btn-ghost" style="height:28px;font-size:12px" data-action="sync-retry-all">重试全部死信</button>' : '') + '</div>' +
+          '<div class="tb-wrap"><table class="tb"><thead><tr><th>任务</th><th>类型 / 关联</th><th>状态</th><th class="t-right">尝试</th><th>下次重试</th><th>错误</th><th class="t-right">操作</th></tr></thead>' +
+          '<tbody>' + jobRows + '</tbody></table></div></section>' +
+        '<section class="card"><div class="card-head" style="padding-bottom:12px"><h3>店铺连接</h3><span class="hint">' + (NET_MODE === 'normal' ? '网络正常' : NET_MODE === 'flaky' ? '限流注入中' : '断网模拟中') + '</span></div>' +
+          '<div class="tb-wrap"><table class="tb"><thead><tr><th>店铺</th><th>授权</th><th>最后同步</th><th class="t-right">送达</th><th class="t-right">失败</th></tr></thead>' +
+          '<tbody>' + shopRows + '</tbody></table></div>' +
+          '<div class="card-body" style="padding-top:2px"><div class="sec-t">最近日志</div><div class="log-box">' + logRows + '</div></div></section>' +
+      '</div>';
+  }
+
+  /* ---------- PDA 扫码作业 ---------- */
+  function pdaHTML() {
+    var list = ORDERS.filter(function (o) { return o.status === '待发货'; }).slice(0, 8);
+    var cards = list.length ? list.map(function (o) {
+      return '<div class="pda-card" data-order="' + o.id + '">' +
+        '<div class="pda-row"><b class="mono">' + o.id + '</b>' + statusTag(o.status) + '</div>' +
+        '<div class="pda-row"><span>' + esc(o.buyer) + ' · ' + esc(o.shop) + '</span><b>' + money(o.amount) + '</b></div>' +
+        '<div class="pda-sub">' + o.items.map(function (it) { return esc(it.name) + ' ×' + it.qty; }).join('，') + '</div>' +
+        (can('order.ship')
+          ? '<button class="pda-btn" data-action="pda-ship" data-id="' + o.id + '">确认发货</button>'
+          : '<button class="pda-btn ghost" disabled>无发货权限</button>') +
+        '</div>';
+    }).join('') : '<div class="empty" style="padding:40px"><h3>没有待发货订单</h3><p>先在订单页审单</p></div>';
+
+    return '<div class="pda">' +
+        '<div class="pda-head"><div><b>扫码作业</b><span>' + role().label + ' · 杭州主仓</span></div>' +
+          '<div style="display:flex;align-items:center;gap:12px">' +
+            '<button class="pda-back" data-action="nav" data-route="orders">返回</button>' +
+            '<span class="pda-dot"></span></div></div>' +
+        '<div class="pda-scan"><input id="pda-input" placeholder="扫描 / 输入订单号" autocomplete="off">' +
+          '<button data-action="pda-scan">查找</button></div>' +
+        '<div class="pda-hint">待发货 ' + list.length + ' 笔 · 扫描订单号可定位</div>' +
+        '<div class="pda-list">' + cards + '</div>' +
+      '</div>';
+  }
+
+  /* ---------- 拣货单 / 面单打印 ---------- */
+  function printPick(docId) {
+    var doc = store ? store.doc(docId) : null;
+    if (!doc) { toast('拣货单不存在', 'err'); return; }
+    var rows = doc.lines.map(function (l) {
+      return '<tr><td>' + binOf(l.sku, l.wh) + '</td><td>' + esc(l.sku) + '</td>' +
+        '<td>' + esc(l.name) + '</td><td>' + l.wh + '</td>' +
+        '<td class="right">' + l.qty + '</td><td style="width:70px"></td></tr>';
+    }).join('');
+    printHTML('拣货单 ' + doc.id,
+      '<h1>波次拣货单</h1>' +
+      '<div class="meta">单号 ' + doc.id + ' · 订单 ' + doc.refs.length + ' 笔 · SKU ' + doc.lines.length + ' 个 · 打印时间 ' + new Date().toLocaleString('zh-CN') + '</div>' +
+      '<table><thead><tr><th>库位</th><th>SKU</th><th>商品</th><th>仓库</th><th class="right">应拣</th><th>实拣</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<div class="sign">拣货人签字：____________　　复核人签字：____________　　日期：__________</div>');
+    toast('拣货单已发送到打印');
+  }
+
+  function printWaybills(ids) {
+    var list = ORDERS.filter(function (o) { return ids.indexOf(o.id) > -1; });
+    if (!list.length) { toast('请先勾选订单', 'err'); return; }
+    var html = list.map(function (o) {
+      var parts = String(o.express || '').split(' ');
+      var no = parts[1] || ('SF' + (780000 + Math.floor(Math.random() * 9000)));
+      return '<div class="waybill">' +
+        '<div class="wb-top"><b>' + (parts[0] || '顺丰速运') + '</b><span>' + no + '</span></div>' +
+        '<div><b>' + esc(o.buyer) + '</b> ' + o.phone + '<br>' + esc(o.addr) + '</div>' +
+        '<div class="barcode"></div>' +
+        '<div style="text-align:center;font-size:11px;margin-top:4px">' + no + '</div>' +
+        '<div style="margin-top:8px;border-top:1px dashed #999;padding-top:6px;font-size:11px">订单 ' + o.id + ' · 共 ' + o.qty + ' 件 · ' + esc(o.shop) + '</div>' +
+        '</div>';
+    }).join('');
+    printHTML('电子面单 ' + list.length + ' 张', html);
+    toast('已生成 ' + list.length + ' 张面单');
+  }
+
   /* ---------- 渲染 ---------- */
   function render() {
     $('#app').innerHTML = session ? shellHTML() : loginHTML();
@@ -3946,6 +4244,8 @@
     else if (ui.route === 'orders') el.innerHTML = ordersHTML();
     else if (ui.route === 'settings') el.innerHTML = settingsHTML();
     else if (ui.route === 'profile') el.innerHTML = profileHTML();
+    else if (ui.route === 'platform') el.innerHTML = platformHTML();
+    else if (ui.route === 'pda') el.innerHTML = pdaHTML();
     else if (MODULES[ui.route]) el.innerHTML = modPageHTML(MODULES[ui.route]);
     else el.innerHTML = placeholderHTML(ui.route);
     syncChrome();
@@ -4344,6 +4644,12 @@
   document.addEventListener('mouseleave', hideTip);
 
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target && e.target.id === 'pda-input') {
+      var pdaBtn = document.querySelector('[data-action="pda-scan"]');
+      if (pdaBtn) pdaBtn.click();
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && e.target && e.target.id === 'scan-input') {
       var scanBtn = document.querySelector('[data-action="pick-scan"]');
       if (scanBtn) scanBtn.click();
@@ -4381,6 +4687,7 @@
   if (session && !ROUTE_TITLE[ui.route]) ui.route = 'dashboard';
 
   initStore();
+  initSync();
   render();
 
   if (!session) {
@@ -4392,4 +4699,12 @@
     if (rEl && remembered) rEl.checked = true;
     if (uEl2) setTimeout(function () { uEl2.focus(); }, 200);
   }
+  /* 后台自动重试：到期任务每 5 秒尝试一次 */
+  setInterval(function () {
+    if (!sync) return;
+    if (!sync.due().length) return;
+    drainSync();
+    if (ui.route === 'platform') renderMain();
+  }, 5000);
+
 })();
