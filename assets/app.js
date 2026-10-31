@@ -3223,9 +3223,10 @@
     if (!ready.length) { toast('选中的订单里没有待发货的，先审单', 'err'); return; }
 
     try {
-      var doc = store.createPick(ready, { by: PROFILE.name });
+      var waves = store.createPicks(ready, { waveSize: 3, by: PROFILE.name });
       saveStore();
-      pickDrawer(doc.id);
+      if (waves.length === 1) pickDrawer(waves[0].id);
+      else waveListModal(waves);
     } catch (e) {
       var list = (e.detail || []).map(function (p) {
         return '<div class="confirm-row"><span>' + esc(p.message) + '</span></div>';
@@ -3241,17 +3242,32 @@
     }
   }
 
+  function waveListModal(waves) {
+    openModal({
+      title: '已生成 ' + waves.length + ' 个波次',
+      desc: '按每波 3 单拆分，各波次独立拣货、独立复核出库',
+      body: '<div class="confirm-list">' + waves.map(function (w) {
+        return '<div class="confirm-row"><span class="mono">' + w.id + '</span>' +
+          '<span>' + w.refs.length + ' 单 · ' + w.lines.length + ' 个 SKU</span>' +
+          '<b><button class="link" style="font-size:12.5px" data-action="wave-open" data-doc="' + w.id + '">打开</button></b></div>';
+      }).join('') + '</div>',
+      foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>'
+    });
+    modalState.onSubmit = null;
+  }
+
   function pickDrawer(docId) {
     var doc = store ? store.doc(docId) : null;
     if (!doc) return;
     var totalQty = doc.lines.reduce(function (s, l) { return s + l.qty; }, 0);
     var pickedQty = doc.lines.reduce(function (s, l) { return s + l.picked; }, 0);
     var finished = doc.status === '已完成';
+    var verified = doc.verified || [];
 
     var rows = doc.lines.map(function (l) {
       var done = l.picked >= l.qty;
       return '<tr>' +
-        '<td><span class="mono" style="font-size:12px;background:#f3f6fc;border:1px solid #e4eaf5;border-radius:5px;padding:2px 6px">' + binOf(l.sku, l.wh) + '</span></td>' +
+        '<td><span class="mono" style="font-size:12px;background:#f3f6fc;border:1px solid #e4eaf5;border-radius:5px;padding:2px 6px;white-space:nowrap">' + binOf(l.sku, l.wh) + '</span></td>' +
         '<td><div class="cell-main mono" style="font-size:12.5px">' + l.sku + '</div><div class="cell-sub">' + esc(l.name) + ' · ' + l.wh + '</div></td>' +
         '<td class="t-right num">' + l.qty + '</td>' +
         '<td class="t-right num" style="font-weight:600;color:' + (done ? '#06894e' : '#b54708') + '">' + l.picked + '</td>' +
@@ -3273,6 +3289,24 @@
               '<div class="sum-row"><span>已拣件数</span><span>' + pickedQty + '</span></div>' +
               '<div class="sum-row total"><span>进度</span><b>' + (totalQty ? Math.round((pickedQty / totalQty) * 100) : 0) + '%</b></div>' +
             '</div>' +
+          '</div>' +
+          '<div class="sec"><div class="sec-t">扫描验货（' + verified.length + ' / ' + doc.refs.length + '）</div>' +
+            (finished ? '' :
+              '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+                '<input class="inp" id="scan-input" placeholder="扫描 / 输入订单号后回车" style="flex:1;height:34px" autocomplete="off">' +
+                '<button class="btn btn-ghost xs" data-action="pick-scan" data-doc="' + doc.id + '">验货</button>' +
+              '</div>') +
+            '<div class="confirm-list">' + doc.refs.map(function (id) {
+              var ok = verified.indexOf(id) > -1;
+              var o = orderById(id) || {};
+              return '<div class="confirm-row"><span class="mono">' + id + '</span>' +
+                '<span>' + (o.buyer || '') + '</span>' +
+                '<span>' + (ok ? tag('已验货', 'green')
+                  : (finished ? '—'
+                    : '<button class="link" style="font-size:12.5px" data-action="pick-verify" data-doc="' + doc.id + '" data-order="' + id + '">模拟扫码</button>')) +
+                '</span></div>';
+            }).join('') + '</div>' +
+            (verified.length >= doc.refs.length ? '<div class="hint" style="margin-top:8px;font-size:11.5px;color:#06894e">全部订单已验货，可以复核出库</div>' : '') +
           '</div>' +
           '<div class="sec"><div class="sec-t">拣货明细（按库位排序）</div>' +
             '<table class="tb" style="border:1px solid var(--line);border-radius:9px;overflow:hidden">' +
@@ -3617,6 +3651,41 @@
     'pick-line': function (el) { pickLineAction(el); },
     'pick-all': function (el) { pickAllAction(el); },
     'pick-confirm': function (el) { pickConfirmAction(el); },
+    'pick-verify': function (el) {
+      var docId = el.getAttribute('data-doc');
+      try {
+        store.verify(docId, el.getAttribute('data-order'));
+        saveStore();
+        pickDrawer(docId);
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    },
+    'pick-scan': function (el) {
+      var docId = el.getAttribute('data-doc');
+      var input = document.getElementById('scan-input');
+      var v = input ? String(input.value || '').trim() : '';
+      if (!v) { toast('请输入或扫描订单号', 'err'); return; }
+      var ord = orderById(v);
+      if (!ord) {
+        var hit = ORDERS.filter(function (o) { return o.express && o.express.indexOf(v) > -1; })[0];
+        ord = hit || null;
+      }
+      if (!ord) { toast('未找到订单 ' + v, 'err'); return; }
+      try {
+        store.verify(docId, ord.id);
+        saveStore();
+        pickDrawer(docId);
+        toast('验货通过：' + ord.id);
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    },
+    'wave-open': function (el) {
+      var id = el.getAttribute('data-doc');
+      closeModal();
+      pickDrawer(id);
+    },
     'order-ship': function (el) {
       var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!o) return;
@@ -4135,6 +4204,12 @@
   document.addEventListener('mouseleave', hideTip);
 
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target && e.target.id === 'scan-input') {
+      var scanBtn = document.querySelector('[data-action="pick-scan"]');
+      if (scanBtn) scanBtn.click();
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && e.target && e.target.id === 'global-search') {
       globalSearchModal(e.target.value);
       return;
