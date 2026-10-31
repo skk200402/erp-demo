@@ -111,6 +111,20 @@
   }
   window.scopedInventory = scopedInventory;
 
+  /* 商品库存 = 该商品所有 SKU 在库数量之和（商品与库存的唯一关联口径） */
+  function stockOfProduct(code) {
+    var rows = INVENTORY.filter(function (r) { return String(r.sku).indexOf(code) === 0; });
+    var total = rows.reduce(function (s, r) { return s + r.avail; }, 0);
+    return { total: total, rows: rows };
+  }
+  window.stockOfProduct = stockOfProduct;
+
+  /* 库存不足的商品数（低于 100 件视为预警，含断货） */
+  function productsLowStock() {
+    return PRODUCTS.filter(function (p) { return stockOfProduct(p.code).total < 100; }).length;
+  }
+  window.productsLowStock = productsLowStock;
+
   var LOGIN_LOGS = [    { t: '今天 09:12', dev: 'Windows · Chrome 141', ip: '10.8.2.10', loc: '杭州', cur: true },
     { t: '昨天 20:31', dev: 'macOS · Safari 18', ip: '10.8.2.10', loc: '杭州', cur: false },
     { t: '10-30 09:05', dev: 'iOS · 飞书 App', ip: '117.136.12.8', loc: '杭州', cur: false },
@@ -120,22 +134,41 @@
 
 
   /* ---------- 图表 ---------- */
-  function trendData(range) {
-    var labels = [], sales = [], orders = [], i, d;
-    if (range === 7) {
-      var now = new Date();
-      for (i = 6; i >= 0; i--) { d = new Date(now.getTime() - i * 864e5); labels.push(mmdd(d)); }
-      sales = [21.3, 18.9, 24.6, 22.1, 28.7, 31.2, 28.6];
-      orders = [760, 1020, 880, 1180, 960, 1420, 1286];
-    } else {
-      var now2 = new Date();
-      for (i = 29; i >= 0; i--) { d = new Date(now2.getTime() - i * 864e5); labels.push(mmdd(d)); }
-      for (i = 0; i < 30; i++) {
-        sales.push(Math.round((21 + 5 * Math.sin(i / 3.1) + 2.4 * Math.sin(i / 1.7 + 1.2) - (i % 7 === 0 ? 2.5 : 0)) * 10) / 10);
-        orders.push(Math.round(950 + 260 * Math.sin(i / 3.4 + 0.6) + 120 * Math.sin(i / 1.3) + (i % 6 === 0 ? 180 : 0)));
-      }
+  /* 按真实订单聚合的日序列：标签 = MM-DD，金额单位 = 万元 */
+  function dayBucketOf(timeStr) {
+    var t = String(timeStr || '');
+    if (t.indexOf('今天') === 0) return 'today';
+    if (t.indexOf('昨天') === 0) return 'yesterday';
+    var m = t.match(/^(\d{1,2})-(\d{1,2})/);
+    return m ? m[1] + '-' + m[2] : 'other';
+  }
+
+  function dailySeries(days) {
+    var labels = [], counts = [], amounts = [], now = new Date();
+    var map = {};
+    for (var i = 0; i < days; i++) {
+      var d = new Date(now.getTime() - (days - 1 - i) * 864e5);
+      var key = mmdd(d);
+      labels.push(key);
+      map[key] = { c: 0, a: 0 };
     }
-    return { labels: labels, sales: sales, orders: orders };
+    ORDERS.forEach(function (o) {
+      var b = dayBucketOf(o.time);
+      var key = b === 'today' ? mmdd(now) : b === 'yesterday' ? mmdd(new Date(now.getTime() - 864e5)) : b;
+      if (map[key]) {
+        map[key].c += 1;
+        map[key].a += Number(o.amount) || 0;
+      }
+    });
+    labels.forEach(function (k) {
+      counts.push(map[k].c);
+      amounts.push(Math.round(map[k].a / 100) / 100); // 元 → 万元（保留 2 位）
+    });
+    return { labels: labels, sales: amounts, orders: counts };
+  }
+
+  function trendData(range) {
+    return dailySeries(range === 7 ? 7 : 30);
   }
 
   var chartState = null;
@@ -487,18 +520,63 @@
     return d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 · 星期' + wk;
   }
 
+  /* 工作台指标全部从订单 / 库存 / 售后实时汇总，不再有写死的数字 */
+  function dashMetrics() {
+    var today = [], yest = [];
+    ORDERS.forEach(function (o) {
+      var b = dayBucketOf(o.time);
+      if (b === 'today') today.push(o);
+      else if (b === 'yesterday') yest.push(o);
+    });
+    var sum = function (list) { return list.reduce(function (s, o) { return s + (Number(o.amount) || 0); }, 0); };
+    var invWarn = INVENTORY.filter(function (r) { return r.status !== '正常'; });
+    var series = dailySeries(7);
+    var platCount = {};
+    ORDERS.forEach(function (o) { platCount[o.plat] = (platCount[o.plat] || 0) + 1; });
+
+    return {
+      todayCount: today.length,
+      todayAmount: sum(today),
+      yestCount: yest.length,
+      yestAmount: sum(yest),
+      waitShip: ORDERS.filter(function (o) { return o.status === '待发货'; }).length,
+      waitReview: ORDERS.filter(function (o) { return o.status === '待审核'; }).length,
+      invWarn: invWarn.length,
+      invOut: invWarn.filter(function (r) { return r.status === '断货'; }).length,
+      afterOpen: AFTERSALES.filter(function (r) {
+        return ['待审核', '待买家退货', '待收货', '退款中'].indexOf(r.status) > -1;
+      }).length,
+      ordersSeries: series.orders,
+      amountSeries: series.sales,
+      platCount: platCount
+    };
+  }
+
   function kpiHTML() {
-    return KPI.map(function (k) {
-      var dirCls = k.dir === 'up' ? 'up' : 'down';
-      var arrow = k.dir === 'up' ? icon('arrowUp', 11) : icon('arrowDown', 11);
-      var val = typeof k.value === 'number' ? num(k.value) : k.value;
+    var m = dashMetrics();
+    var pct = function (cur, prev) {
+      if (!prev) return 0;
+      return Math.round(((cur - prev) / prev) * 1000) / 10;
+    };
+    var cards = [
+      { label: '今日订单', value: num(m.todayCount), unit: '单', delta: pct(m.todayCount, m.yestCount), sub: '较昨日', ico: 'doc', color: '#3568f0', spark: m.ordersSeries },
+      { label: '今日销售额', value: '¥' + num(Math.round(m.todayAmount)), unit: '', delta: pct(m.todayAmount, m.yestAmount), sub: '较昨日', ico: 'wallet', color: '#12b76a', spark: m.amountSeries },
+      { label: '待发货订单', value: num(m.waitShip), unit: '单', delta: 0, sub: '待审核 ' + m.waitReview + ' 笔', ico: 'truck', color: '#f79009', spark: m.ordersSeries },
+      { label: '库存预警 SKU', value: num(m.invWarn), unit: '个', delta: 0, sub: '其中 ' + m.invOut + ' 个已断货', ico: 'alert', color: '#f04438', spark: m.ordersSeries }
+    ];
+
+    return cards.map(function (k) {
+      var up = k.delta >= 0;
+      var arrow = up ? icon('arrowUp', 11) : icon('arrowDown', 11);
+      var deltaHTML = k.delta === 0
+        ? '<span class="delta flat">持平</span>'
+        : '<span class="delta ' + (up ? 'up' : 'down') + '">' + arrow + Math.abs(k.delta) + '%</span>';
       return '<div class="kpi">' +
         '<div class="kpi-top"><span class="kpi-label">' + k.label + '</span>' +
           '<span class="kpi-ico" style="background:' + k.color + '15;color:' + k.color + '">' + icon(k.ico, 15) + '</span></div>' +
-        '<div class="kpi-val">' + val + '<small>' + k.unit + '</small></div>' +
+        '<div class="kpi-val">' + k.value + '<small>' + k.unit + '</small></div>' +
         '<div class="kpi-bot">' +
-          '<div><span class="delta ' + dirCls + '">' + arrow + Math.abs(k.delta) + '%</span>' +
-            '<span class="kpi-sub" style="margin-left:6px">' + k.sub + '</span></div>' +
+          '<div>' + deltaHTML + '<span class="kpi-sub" style="margin-left:6px">' + k.sub + '</span></div>' +
           '<div style="opacity:.9">' + sparkline(k.spark, k.color) + '</div>' +
         '</div>' +
       '</div>';
@@ -506,10 +584,16 @@
   }
 
   function dashboardHTML() {
-    var now = new Date();
+    var m = dashMetrics();
     var recent = ORDERS.slice(0, 5);
 
-    var todoHTML = TODOS.map(function (t) {
+    var todoDefs = [
+      { label: '待审核订单', sub: '需要人工或规则审单', n: m.waitReview, route: 'orders', ico: 'clock', color: '#f79009', bg: '#fff5e6' },
+      { label: '待发货订单', sub: '审单通过待出库', n: m.waitShip, route: 'orders', ico: 'truck', color: '#3568f0', bg: '#eef3ff' },
+      { label: '售后待处理', sub: '退款 / 退货 / 换货', n: m.afterOpen, route: 'aftersale', ico: 'refresh', color: '#f04438', bg: '#feecea' },
+      { label: '库存预警', sub: m.invOut + ' 个 SKU 已断货', n: m.invWarn, route: 'inventory', ico: 'alert', color: '#7a5af8', bg: '#f1eeff' }
+    ];
+    var todoHTML = todoDefs.map(function (t) {
       return '<button class="todo-item" data-action="nav" data-route="' + t.route + '">' +
         '<span class="todo-ico" style="background:' + t.bg + ';color:' + t.color + '">' + icon(t.ico, 16) + '</span>' +
         '<span class="todo-txt"><b>' + t.label + '</b><span>' + t.sub + '</span></span>' +
@@ -518,11 +602,16 @@
         '</button>';
     }).join('');
 
-    var platHTML = DONUT.map(function (d) {
+    var totalPlat = 0;
+    Object.keys(m.platCount).forEach(function (k) { totalPlat += m.platCount[k]; });
+    var platList = Object.keys(m.platCount).map(function (k) {
+      return { name: k, n: m.platCount[k], c: PLATFORMS[k] || '#98a2b3', v: totalPlat ? Math.round((m.platCount[k] / totalPlat) * 100) : 0 };
+    }).sort(function (a, b) { return b.n - a.n; });
+    var platHTML = platList.map(function (d) {
       return '<div class="plat-row"><i style="background:' + d.c + '"></i>' +
         '<span class="nm">' + d.name + '</span>' +
         '<span class="vl">' + d.v + '%</span>' +
-        '<span class="pc">' + Math.round(d.v * 12.86) + ' 单</span></div>';
+        '<span class="pc">' + d.n + ' 单</span></div>';
     }).join('');
 
     var recentHTML = recent.map(function (o) {
@@ -538,7 +627,7 @@
 
     return '<div class="page-head">' +
         '<div><h1>' + greeting() + '，' + (session ? esc(session.name) : '管理员') + '</h1>' +
-          '<p class="desc">' + todayText() + ' · 今日已有 ' + num(KPI[0].value) + ' 笔订单，待发货 ' + num(KPI[2].value) + ' 笔</p></div>' +
+          '<p class="desc">' + todayText() + ' · 今日已有 ' + num(m.todayCount) + ' 笔订单，待发货 ' + num(m.waitShip) + ' 笔</p></div>' +
         '<div class="head-actions">' +
           '<button class="btn btn-ghost" data-action="sync">' + icon('refresh', 15) + '同步订单</button>' +
           '<button class="btn btn-ghost" data-action="nav" data-route="finance">' + icon('chart', 15) + '今日报表</button>' +
@@ -556,16 +645,20 @@
             '<div class="donut-wrap">' + donutSVG() + '<div class="plat-list">' + platHTML + '</div></div>' +
           '</div>' +
           '<div class="mini-stats">' +
-            '<div class="ms"><span>客单价</span><b>¥223</b></div>' +
-            '<div class="ms"><span>支付转化</span><b>3.24%</b></div>' +
-            '<div class="ms"><span>退款率</span><b>1.8%</b></div>' +
+            '<div class="ms"><span>客单价</span><b>¥' + (m.todayCount ? num(Math.round(m.todayAmount / m.todayCount)) : 0) + '</b></div>' +
+            '<div class="ms"><span>售后待处理</span><b>' + m.afterOpen + ' 单</b></div>' +
+            '<div class="ms"><span>退款率</span><b>' + (function () {
+              var all = ORDERS.reduce(function (s, o) { return s + (Number(o.amount) || 0); }, 0);
+              var ref = AFTERSALES.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+              return all ? ((ref / all) * 100).toFixed(1) + '%' : '0%';
+            })() + '</b></div>' +
           '</div>' +
         '</section>' +
       '</div>' +
 
       '<div class="grid-2 rev">' +
         '<section class="card">' +
-          '<div class="card-head"><h3>待办事项</h3><span class="hint">共 107 项</span></div>' +
+          '<div class="card-head"><h3>待办事项</h3><span class="hint">共 ' + (m.waitReview + m.waitShip + m.afterOpen + m.invWarn) + ' 项</span></div>' +
           '<div class="card-body" style="padding:8px 10px 10px"><div class="todo">' + todoHTML + '</div></div>' +
           '<div class="card-foot" style="display:flex;justify-content:space-between;align-items:center">' +
             '<span style="font-size:12px;color:var(--muted)">处理完可减少 20 分钟/天</span>' +
@@ -1313,13 +1406,22 @@
 
   /* ---------- 商品详情 ---------- */
   function productDrawerHTML(p) {
+    /* SKU 与库存直接来自库存台账（按商品编码前缀关联），不再用商品上的静态字段 */
+    var inv = stockOfProduct(p.code).rows;
     var skus = productSkus(p);
-    var skuRows = skus.map(function (s) {
+    var skuRows = inv.length ? inv.map(function (r) {
+      var spec = String(r.name || '').replace(p.name, '').trim() || r.sku;
+      return '<tr><td><div class="cell-main" style="font-weight:500">' + esc(spec) + '</div>' +
+        '<div class="cell-sub mono">' + esc(r.sku) + ' · ' + esc(r.wh) + '</div></td>' +
+        '<td class="t-right num">' + money(p.priceMin) + '</td>' +
+        (can('cost.view') ? '<td class="t-right num" style="color:var(--muted)">' + money(Math.round(p.priceMin * 0.42)) + '</td>' : '') +
+        '<td class="t-right num' + (r.avail === 0 ? '" style="color:#d92d20' : '') + '">' + num(r.avail) + '</td></tr>';
+    }).join('') : skus.map(function (s) {
       return '<tr><td><div class="cell-main" style="font-weight:500">' + s.spec + '</div>' +
-        '<div class="cell-sub mono">' + s.code + '</div></td>' +
+        '<div class="cell-sub mono">' + s.code + '（未建库存）</div></td>' +
         '<td class="t-right num">' + money(s.price) + '</td>' +
         (can('cost.view') ? '<td class="t-right num" style="color:var(--muted)">' + money(s.cost) + '</td>' : '') +
-        '<td class="t-right num' + (s.stock === 0 ? '" style="color:#d92d20' : '') + '">' + num(s.stock) + '</td></tr>';
+        '<td class="t-right num" style="color:var(--muted)">0</td></tr>';
     }).join('');
 
     var mapped = Number(p.map.split('/')[0]);
@@ -2746,7 +2848,7 @@
     var docId = el.getAttribute('data-doc');
     try {
       var res = store.confirmPick(docId, { by: PROFILE.name });
-      res.orders.forEach(function (o) { pushTracking(o); });
+      res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - res.orders.length);
@@ -2822,7 +2924,7 @@
     if (!store) { toast('数据层未就绪，无法发货', 'err'); return false; }
     try {
       var res = store.ship(ids, { carrier: v.carrier, by: PROFILE.name });
-      res.orders.forEach(function (o) { pushTracking(o); });
+      res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - ids.length);
@@ -3318,6 +3420,22 @@
       payload: { orderId: o.id, shop: o.shop, carrier: parts[0] || '', trackingNo: parts[1] || '' }
     });
     saveSync();
+  }
+
+  /* 发货即生成运单，物流模块与订单联动 */
+  function pushWaybill(o) {
+    if (!o || typeof LOGISTICS === 'undefined') return;
+    var parts = String(o.express || '').split(' ');
+    var no = parts[1] || ('SF' + (780000 + Math.floor(Math.random() * 9000)));
+    var city = String(o.addr || '').replace(/^.*?省/, '').replace(/^.*?市/, '').slice(0, 12) || '—';
+    var row = {
+      waybill: no, id: no, order: o.id, express: parts[0] || '顺丰速运',
+      receiver: o.buyer, city: city,
+      track: '【' + city.slice(0, 6) + '】快件已揽收',
+      status: '运输中', time: '刚刚', abnormal: false
+    };
+    row.search = [row.waybill, row.order, row.express, row.receiver, row.city, row.track].join(' ');
+    LOGISTICS.unshift(row);
   }
 
   function pushStock(ref, sku, wh, qty) {
