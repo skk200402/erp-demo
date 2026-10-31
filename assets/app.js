@@ -1021,15 +1021,41 @@
   indexSearch(DISTRIBUTORS, ['name', 'code', 'level']);
 
   /* ---------- 财务对账 ---------- */
-  var FINANCE = [
-    { plat: '淘宝天猫', shop: '鲸云旗舰店', period: '2026-10 上半月', platform: 186420.5, system: 186420.5, diff: 0, status: '已对平' },
-    { plat: '京东', shop: '京东自营店', period: '2026-10 上半月', platform: 142860, system: 141973.4, diff: 886.6, status: '有差异' },
-    { plat: '抖音小店', shop: '抖音旗舰店', period: '2026-10 上半月', platform: 98420, system: 98420, diff: 0, status: '已对平' },
-    { plat: '拼多多', shop: '拼多多店', period: '2026-10 上半月', platform: 54280, system: 53810.2, diff: 469.8, status: '有差异' },
-    { plat: '快手小店', shop: '快手店', period: '2026-10 上半月', platform: 16240, system: 16240, diff: 0, status: '已对平' },
-    { plat: '有赞', shop: '小程序商城', period: '2026-10 上半月', platform: 8900, system: 8900, diff: 0, status: '待对账' }
-  ];
-  indexSearch(FINANCE, ['plat', 'shop', 'period']);
+  var FINANCE = [];
+  var FIN_PERIOD = '2026-10';
+  /* 平台账单默认 = 系统应收 + 该店铺的已知差异（演示数据），也可手工录入覆盖 */
+  var FIN_DELTA = { '京东自营店': 12.8, '拼多多店': -3.5 };
+  var FIN_OVERRIDE = {};
+
+  function refundsByShop() {
+    var map = {};
+    AFTERSALES.forEach(function (r) {
+      if (r.status !== '已完成' && r.status !== '退款中') return;
+      var o = null;
+      for (var i = 0; i < ORDERS.length; i++) if (ORDERS[i].id === r.order) { o = ORDERS[i]; break; }
+      if (!o) return;
+      map[o.shop] = (map[o.shop] || 0) + r.amount;
+    });
+    return map;
+  }
+
+  function rebuildFinance() {
+    if (!store) return;
+    var rows = store.settlement(refundsByShop());
+    rows.sort(function (a, b) { return b.net - a.net; });
+    FINANCE.length = 0;
+    rows.forEach(function (s) {
+      var override = FIN_OVERRIDE[s.shop];
+      var platform = override != null ? override : Math.round((s.net + (FIN_DELTA[s.shop] || 0)) * 100) / 100;
+      var diff = Math.round((platform - s.net) * 100) / 100;
+      FINANCE.push({
+        id: s.shop, plat: s.plat, shop: s.shop, period: FIN_PERIOD,
+        outCount: s.outCount, refund: s.refund,
+        system: s.net, platform: platform, diff: diff,
+        status: Math.abs(diff) < 0.005 ? '已对平' : '有差异'
+      });
+    });
+  }
 
   /* ============================================================
      数据层：库存台账 + 订单状态机（assets/store.js）
@@ -1079,8 +1105,6 @@
   }
 
   function ensureStock(sku, wh, name) {
-    if (!store || store.stockRow(sku, wh)) return;
-    store.openStock(sku, wh, 200, { at: SEED_AT, ref: '期初建账', name: name });
     var exists = false;
     for (var i = 0; i < INVENTORY.length; i++) {
       if (INVENTORY[i].sku === sku && INVENTORY[i].wh === wh) { exists = true; break; }
@@ -1099,15 +1123,28 @@
 
   function seedStore() {
     store = new ERPStore();
-    INVENTORY.forEach(function (r) {
-      store.openStock(r.sku, r.wh, r.avail, { locked: r.lock, at: SEED_AT, ref: '期初建账', name: r.name });
-    });
+
+    // 1. 补齐 SKU 映射与展示行，同时统计历史已发货订单的出库量
+    var histNeed = {};
     ORDERS.forEach(function (o) {
       o.wh = o.wh || '杭州主仓';
       o.items.forEach(function (it) {
         resolveSkuFor(it);
         ensureStock(it.sku, o.wh, it.name);
+        if (o.status === '已发货' || o.status === '已完成') {
+          var k = it.sku + '|' + o.wh;
+          histNeed[k] = (histNeed[k] || 0) + it.qty;
+        }
       });
+    });
+
+    // 2. 期初 = 当前库存 + 历史出库量：补录历史出库后正好回到当前库存
+    INVENTORY.forEach(function (r) {
+      var extra = histNeed[r.sku + '|' + r.wh] || 0;
+      store.openStock(r.sku, r.wh, r.avail + extra, { locked: r.lock, at: SEED_AT, ref: '期初建账', name: r.name });
+    });
+
+    ORDERS.forEach(function (o) {
       store.addOrder({
         id: o.id, wh: o.wh, status: o.status, qty: o.qty, amount: o.amount,
         buyer: o.buyer, plat: o.plat, shop: o.shop, time: o.time,
@@ -1116,6 +1153,14 @@
           return { sku: it.sku, qty: it.qty, price: it.price, name: it.name, spec: it.spec };
         })
       });
+    });
+
+    // 3. 为已发货 / 已完成订单补录出库单与台账（历史数据）
+    ORDERS.forEach(function (o, i) {
+      if (o.status !== '已发货' && o.status !== '已完成') return;
+      try {
+        store.seedShipment(o.id, { at: new Date(Date.now() - (i + 1) * 3600 * 1000).toISOString() });
+      } catch (e) { /* ignore */ }
     });
   }
 
@@ -1155,6 +1200,7 @@
         saveStore();
       }
       syncFromStore();
+      rebuildFinance();
     } catch (e) {
       store = null;
       try { console.error('[store] init failed', e); } catch (e2) { /* ignore */ }
@@ -1506,22 +1552,23 @@
       { label: '开始对账', ico: 'refresh', act: 'fin-reconcile', primary: true }
     ],
     stats: [
-      { label: '平台应结', value: '50.7', unit: '万', ico: 'wallet', color: '#3568f0' },
-      { label: '已结算', value: '21.5', unit: '万', ico: 'check', color: '#12b76a' },
-      { label: '待结算', value: '17.2', unit: '万', ico: 'clock', color: '#f79009' },
-      { label: '差异单', value: '2', unit: '笔', ico: 'alert', color: '#f04438' }
+      { label: '系统应收', value: function () { return (FINANCE.reduce(function (s, r) { return s + r.system; }, 0) / 10000).toFixed(2); }, unit: '万', ico: 'wallet', color: '#3568f0' },
+      { label: '平台账单', value: function () { return (FINANCE.reduce(function (s, r) { return s + r.platform; }, 0) / 10000).toFixed(2); }, unit: '万', ico: 'doc', color: '#12b76a' },
+      { label: '差异金额', value: function () { return FINANCE.reduce(function (s, r) { return s + Math.abs(r.diff); }, 0).toFixed(2); }, unit: '元', ico: 'alert', color: '#f79009' },
+      { label: '差异店铺', value: function () { return String(FINANCE.filter(function (r) { return r.status !== '已对平'; }).length); }, unit: '个', ico: 'clock', color: '#f04438' }
     ],
     filters: [
       { key: 'kw', type: 'search', ph: '店铺 / 账期' },
-      { key: 'status', label: '对账状态', options: ['全部', '已对平', '有差异', '待对账'] }
+      { key: 'status', label: '对账状态', options: ['全部', '已对平', '有差异'] }
     ],
     columns: [
       { title: '店铺', cell: function (r) { return platDot(r.plat) + '<div class="cell-sub">' + r.shop + '</div>'; } },
       { title: '账期', cell: function (r) { return '<span style="color:var(--text-2)">' + r.period + '</span>'; } },
-      { title: '平台结算额', cls: 't-right', cell: function (r) { return '<span class="num">' + money(r.platform) + '</span>'; } },
-      { title: '系统订单额', cls: 't-right', cell: function (r) { return '<span class="num">' + money(r.system) + '</span>'; } },
+      { title: '出库单', cls: 't-right', cell: function (r) { return '<span class="num">' + r.outCount + '</span> 单'; } },
+      { title: '系统应收', cls: 't-right', cell: function (r) { return '<b class="num">' + money(r.system) + '</b>'; } },
+      { title: '平台账单', cls: 't-right', cell: function (r) { return '<span class="num">' + money(r.platform) + '</span>'; } },
       { title: '差异', cls: 't-right', cell: function (r) {
-        return r.diff === 0
+        return Math.abs(r.diff) < 0.005
           ? '<span style="color:var(--muted)">—</span>'
           : '<b class="num" style="color:' + (r.diff > 0 ? '#06894e' : '#d92d20') + '">' + (r.diff > 0 ? '+' : '') + money(r.diff) + '</b>';
       } },
@@ -2740,11 +2787,13 @@
         var amount = Number(v.platform);
         if (!amount || amount <= 0) { toast('请填写有效的结算金额', 'err'); return false; }
         row.period = String(v.period).trim() || row.period;
-        row.platform = amount;
-        row.diff = Math.round((amount - row.system) * 100) / 100;
-        row.status = row.diff === 0 ? '已对平' : '有差异';
+        FIN_OVERRIDE[row.shop] = amount;
+        rebuildFinance();
         renderMain();
-        toast(row.diff === 0 ? '账单已录入，与系统金额一致' : '账单已录入，差异 ' + money(row.diff));
+        var fresh = FINANCE.filter(function (r) { return r.shop === row.shop; })[0];
+        toast(fresh && Math.abs(fresh.diff) < 0.005
+          ? '账单已录入，与系统应收一致'
+          : '账单已录入，差异 ' + money(fresh ? fresh.diff : 0));
       }
     });
   }
@@ -2789,41 +2838,43 @@
       btn.innerHTML = old;
       var fixed = 0;
       FINANCE.forEach(function (r) {
-        if (r.status === '待对账') { r.status = '已对平'; r.diff = 0; fixed++; }
+        if (Math.abs(r.diff) >= 0.005) { FIN_OVERRIDE[r.shop] = r.system; fixed++; }
       });
+      rebuildFinance();
       renderMain();
-      toast('对账完成：' + FINANCE.length + ' 个店铺，' + fixed + ' 个待对账已自动对平');
+      toast('对账完成：' + FINANCE.length + ' 个店铺，' + fixed + ' 个差异已按系统应收调平');
     }, 1000);
   }
 
   function finDetail(shop) {
     var row = FINANCE.filter(function (r) { return r.shop === shop; })[0];
     if (!row) return;
+    var outs = store ? store.outsOf(shop) : [];
     var diff = row.diff;
-    var items = diff === 0
-      ? []
-      : [
-        { id: 'SO202610120046', p: row.system + 120, s: row.system + 120, d: 0, t: '运费差异已确认' },
-        { id: 'SO202610180112', p: Math.abs(diff) + 60, s: 60, d: Math.abs(diff), t: '平台补贴未入账' },
-        { id: 'SO202610210087', p: 0, s: 0, d: 0, t: '已对平' }
-      ];
+
+    var outRows = outs.length ? outs.map(function (x) {
+      return '<tr><td class="mono" style="font-size:12px">' + x.order + '</td>' +
+        '<td>' + esc(x.buyer) + '</td>' +
+        '<td class="t-right num">' + money(x.amount) + '</td>' +
+        '<td class="cell-sub" style="margin:0">' + fmtTs(x.at) + '</td></tr>';
+    }).join('') : '<tr><td colspan="4"><div class="empty" style="padding:22px"><p style="font-size:12.5px">本期没有出库单</p></div></td></tr>';
+
     openModal({
       title: row.shop + ' · 对账明细',
-      desc: '账期 ' + row.period + ' · ' + (diff === 0 ? '平台金额与系统金额一致' : '共发现 1 笔差异，需人工确认'),
+      desc: '账期 ' + row.period + ' · 系统应收 = 出库金额 ' + money(row.system + row.refund) + ' − 退款 ' + money(row.refund) + ' = ' + money(row.system),
       wide: true,
-      body: diff === 0
-        ? '<div class="empty" style="padding:30px"><div class="empty-ico">' + icon('check', 22) + '</div><h3>本期无差异</h3>' +
-          '<p>平台结算额 ' + money(row.platform) + ' 与系统订单额完全一致。</p></div>'
-        : '<div class="tb-wrap"><table class="tb"><thead><tr><th>订单号</th><th class="t-right">平台金额</th>' +
-          '<th class="t-right">系统金额</th><th class="t-right">差异</th><th>说明</th></tr></thead><tbody>' +
-          items.map(function (x) {
-            return '<tr><td class="mono">' + x.id + '</td><td class="t-right num">' + money(x.p) + '</td>' +
-              '<td class="t-right num">' + money(x.s) + '</td>' +
-              '<td class="t-right num" style="color:' + (x.d ? '#d92d20' : 'var(--muted)') + '">' + (x.d ? money(x.d) : '—') + '</td>' +
-              '<td style="color:var(--text-2)">' + x.t + '</td></tr>';
-          }).join('') + '</tbody></table></div>',
+      body: '<div class="sec-t">出库明细（' + outs.length + ' 笔）</div>' +
+        '<div class="tb-wrap"><table class="tb"><thead><tr><th>订单号</th><th>买家</th><th class="t-right">出库金额</th><th>出库时间</th></tr></thead>' +
+        '<tbody>' + outRows + '</tbody></table></div>' +
+        '<div class="sum" style="margin-top:14px">' +
+          '<div class="sum-row"><span>出库金额</span><span>' + money(row.system + row.refund) + '</span></div>' +
+          '<div class="sum-row"><span>退款（售后退回）</span><span style="color:#b42318">-' + money(row.refund) + '</span></div>' +
+          '<div class="sum-row"><span>平台账单</span><span>' + money(row.platform) + '</span></div>' +
+          '<div class="sum-row total"><span>差异</span><b style="color:' + (Math.abs(diff) < 0.005 ? '#06894e' : '#d92d20') + '">' +
+            (Math.abs(diff) < 0.005 ? '对平' : (diff > 0 ? '+' : '') + money(diff)) + '</b></div>' +
+        '</div>',
       foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>' +
-        (diff === 0 ? '' : '<button class="btn btn-primary" data-action="fin-diff-confirm" data-shop="' + esc(shop) + '">确认差异并调账</button>')
+        (Math.abs(diff) < 0.005 ? '' : '<button class="btn btn-primary" data-action="fin-diff-confirm" data-shop="' + esc(shop) + '">确认差异并调账</button>')
     });
   }
 
@@ -3602,7 +3653,8 @@
     'fin-diff-confirm': function (el) {
       var shop = el.getAttribute('data-shop');
       var row = FINANCE.filter(function (r) { return r.shop === shop; })[0];
-      if (row) { row.system = row.platform; row.diff = 0; row.status = '已对平'; }
+      if (row) FIN_OVERRIDE[shop] = row.system;
+      rebuildFinance();
       closeModal();
       renderMain();
       toast('差异已确认并调账：' + shop);
@@ -3806,6 +3858,7 @@
   function renderMain() {
     var el = $('#main-content');
     if (!el) return;
+    if (ui.route === 'finance') rebuildFinance();
     if (ui.route === 'dashboard') el.innerHTML = dashboardHTML();
     else if (ui.route === 'orders') el.innerHTML = ordersHTML();
     else if (ui.route === 'settings') el.innerHTML = settingsHTML();
