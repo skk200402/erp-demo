@@ -199,7 +199,9 @@
     ['SO202610300115', '京东', '京东自营店', '江晚棠', '已完成', '昨天 16:40', [['护眼台灯 Pro', '白色', 1, 399]], ''],
     ['SO202610310008', '淘宝天猫', '旗舰店', '沈泽川', '已发货', '今天 09:38', [['亚麻宽松衬衫', '浅蓝 / XL', 1, 219], ['纯棉直筒长裤', '米白 / 32', 1, 259]], ''],
     ['SO202610300114', '有赞', '小程序商城', '叶南乔', '待发货', '昨天 15:21', [['手冲咖啡礼盒', '中深烘 / 250g', 2, 168]], ''],
-    ['SO202610310009', '抖音小店', '抖音旗舰店', '白露微', '售后中', '今天 08:56', [['轻薄羽绒马甲', '黑色 / S', 1, 429]], '商品有瑕疵，申请换货']
+    ['SO202610310009', '抖音小店', '抖音旗舰店', '白露微', '售后中', '今天 08:56', [['轻薄羽绒马甲', '黑色 / S', 1, 429]], '商品有瑕疵，申请换货'],
+    ['SO202610310010', '淘宝天猫', '旗舰店', '王砚舟', '待审核', '今天 15:02', [['轻量跑步鞋 Aerolite', '黑 / 42', 1, 469]], '地址只填到小区'],
+    ['SO202610310011', '京东', '京东自营店', '李墨', '待审核', '今天 15:18', [['真丝方巾 · 云纹', '藏青 / 65cm', 1, 199]], '']
   ];
 
   var ORDERS = RAW_ORDERS.map(function (r, idx) {
@@ -218,6 +220,11 @@
       phone: '138****' + (1000 + idx * 7).toString().slice(-4),
       express: r[4] === '已发货' || r[4] === '已完成' ? ['顺丰速运', '中通快递', '圆通速递', '京东物流'][idx % 4] + ' SF' + (780000 + idx * 137) : '—'
     };
+  });
+
+  /* 演示用的两笔问题单：地址不全 / 黑名单买家 */
+  ORDERS.forEach(function (o) {
+    if (o.id === 'SO202610310010') o.addr = '阳光小区 3 号楼 2 单元 501';
   });
 
   /* ---------- 图表 ---------- */
@@ -731,6 +738,7 @@
         '<button class="btn btn-ghost xs" data-action="clear-sel">取消选择</button>' +
         '<div class="spacer"></div>' +
         '<button class="btn btn-ghost xs" data-action="export-sel">' + icon('download', 14) + '导出所选</button>' +
+        '<button class="btn btn-ghost xs" data-action="batch-review">' + icon('check', 14) + '审单</button>' +
         '<button class="btn btn-primary xs" data-action="batch-ship">' + icon('truck', 14) + '批量发货</button></div>'
       : '';
 
@@ -819,7 +827,7 @@
     { id: 'AS202610300027', order: 'SO202610300118', plat: '拼多多', shop: '拼多多店', buyer: '黄一诺', type: '补发', amount: 79, reason: '少件 / 漏发', status: '待收货', time: '昨天 16:20', deadline: '剩 3 天' },
     { id: 'AS202610300026', order: 'SO202610300115', plat: '京东', shop: '京东自营店', buyer: '江晚棠', type: '退货退款', amount: 399, reason: '七天无理由', status: '已完成', time: '昨天 11:05', deadline: '—' },
     { id: 'AS202610300025', order: 'SO202610300114', plat: '有赞', shop: '小程序商城', buyer: '叶南乔', type: '仅退款', amount: 336, reason: '拍错 / 多拍', status: '已完成', time: '昨天 10:18', deadline: '—' },
-    { id: 'AS202610290024', order: 'SO202610290098', plat: '京东', shop: '京东自营店', buyer: '周予安', type: '退货退款', amount: 469, reason: '商品与描述不符', status: '待收货', time: '10-29 15:22', deadline: '剩 2 天' },
+    { id: 'AS202610290024', order: 'SO202610310008', plat: '淘宝天猫', shop: '旗舰店', buyer: '沈泽川', type: '退货退款', amount: 478, reason: '商品与描述不符', status: '待收货', time: '10-29 15:22', deadline: '剩 2 天' },
     { id: 'AS202610290023', order: 'SO202610290092', plat: '抖音小店', shop: '抖音旗舰店', buyer: '陈嘉树', type: '仅退款', amount: 199, reason: '不想要了', status: '已关闭', time: '10-29 09:40', deadline: '—' },
     { id: 'AS202610280022', order: 'SO202610280071', plat: '淘宝天猫', shop: '旗舰店', buyer: '林小满', type: '换货', amount: 129, reason: '尺码不合适', status: '已完成', time: '10-28 20:15', deadline: '—' }
   ];
@@ -1102,7 +1110,7 @@
       store.addOrder({
         id: o.id, wh: o.wh, status: o.status, qty: o.qty, amount: o.amount,
         buyer: o.buyer, plat: o.plat, shop: o.shop, time: o.time,
-        express: o.express,
+        express: o.express, addr: o.addr,
         items: o.items.map(function (it) {
           return { sku: it.sku, qty: it.qty, price: it.price, name: it.name, spec: it.spec };
         })
@@ -1923,8 +1931,10 @@
         '<div class="dw-foot">' +
           '<button class="btn btn-danger-ghost" data-action="as-reject" data-id="' + r.id + '">拒绝申请</button>' +
           '<button class="btn btn-ghost" data-action="info" data-msg="已向买家发送协商消息">联系买家</button>' +
-          '<button class="btn btn-primary" data-action="as-agree" data-id="' + r.id + '">' +
-            (r.type === '换货' ? '同意换货' : '同意退款') + '</button>' +
+          ((r.type === '退货退款' && r.status === '待收货')
+            ? '<button class="btn btn-primary" data-action="as-receive" data-id="' + r.id + '">确认收货并退款</button>'
+            : '<button class="btn btn-primary" data-action="as-agree" data-id="' + r.id + '">' +
+              (r.type === '换货' ? '同意换货' : '同意退款') + '</button>') +
         '</div>' +
       '</aside>';
   }
@@ -2114,6 +2124,7 @@
         store.addOrder({
           id: order.id, wh: order.wh, status: order.status, qty: order.qty, amount: order.amount,
           buyer: order.buyer, plat: order.plat, shop: order.shop, time: order.time, express: order.express,
+          addr: order.addr,
           items: [{ sku: item.sku, qty: item.qty, price: item.price, name: item.name, spec: item.spec }]
         });
       } catch (e) { /* 同步失败不影响页面 */ }
@@ -3098,6 +3109,100 @@
     });
   }
 
+  /* ---------- 审单 ---------- */
+  function orderById(id) {
+    for (var i = 0; i < ORDERS.length; i++) if (ORDERS[i].id === id) return ORDERS[i];
+    return null;
+  }
+
+  function batchReview() {
+    var picked = pickedOrders();
+    var ids = picked.filter(function (id) {
+      var o = orderById(id);
+      return o && o.status === '待审核';
+    });
+    if (!ids.length) { toast('选中的订单里没有待审核的，审单只处理待审核订单', 'err'); return; }
+    if (!store) { toast('数据层未就绪', 'err'); return; }
+
+    var res = store.reviewAll(ids);
+    var body = '';
+    if (res.pass.length) {
+      body += '<div class="sec-t" style="margin-top:12px">通过 ' + res.pass.length + ' 笔</div>' +
+        '<div class="confirm-list">' + res.pass.map(function (id) {
+          return '<div class="confirm-row"><span class="mono">' + id + '</span><span>黑名单 / 地址 / 金额 / 重复单 四项校验通过</span>' +
+            '<b>' + tag('可发货', 'green') + '</b></div>';
+        }).join('') + '</div>';
+    }
+    if (res.blocked.length) {
+      body += '<div class="sec-t" style="margin-top:14px">拦截 ' + res.blocked.length + ' 笔</div>' +
+        '<div class="confirm-list">' + res.blocked.map(function (b) {
+          return '<div class="confirm-row"><span class="mono">' + b.id + '</span>' +
+            '<span style="color:#b42318">' + b.hits.map(function (h) { return h.message; }).join('；') + '</span>' +
+            '<b>' + b.hits.length + ' 项</b></div>';
+        }).join('') + '</div>';
+    }
+
+    openModal({
+      title: '审单结果',
+      desc: '通过 ' + res.pass.length + ' 笔，拦截 ' + res.blocked.length + ' 笔。被拦截的订单保留在待审核，修好地址或核实买家后可单独放行。',
+      wide: true,
+      body: body,
+      foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>' +
+        (res.pass.length ? '<button class="btn btn-primary" data-action="review-confirm">通过 ' + res.pass.length + ' 笔并转待发货</button>' : '')
+    });
+    modalState.onSubmit = null;
+    window.__reviewPass = res.pass;
+  }
+
+  function reviewConfirm() {
+    var ids = window.__reviewPass || [];
+    var ok = 0;
+    ids.forEach(function (id) {
+      var o = store.order(id);
+      if (!o || o.status !== '待审核') return;
+      try {
+        store.transition(o, '待发货', { by: PROFILE.name, note: '规则审单通过' });
+        ok++;
+      } catch (e) { /* ignore */ }
+    });
+    saveStore();
+    syncFromStore();
+    ui.sel = {};
+    closeModal();
+    renderMain();
+    toast('已通过 ' + ok + ' 笔，进入待发货队列');
+  }
+
+  function auditOne(id) {
+    var o = orderById(id);
+    if (!o) return;
+    if (!store) { toast('数据层未就绪', 'err'); return; }
+    var r = store.review(id);
+    if (!r.ok) {
+      openModal({
+        title: '审单未通过',
+        desc: '订单 ' + id + ' 命中 ' + r.hits.length + ' 条规则，需人工确认后才能放行。',
+        body: '<div class="confirm-list">' + r.hits.map(function (h) {
+          return '<div class="confirm-row"><span>' + tag(h.title, 'red') + '</span><span>' + esc(h.message) + '</span></div>';
+        }).join('') + '</div>',
+        foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>' +
+          '<button class="btn btn-danger-ghost" data-action="force-audit" data-id="' + id + '">仍要人工放行</button>'
+      });
+      modalState.onSubmit = null;
+      return;
+    }
+    try {
+      store.transition(store.order(id), '待发货', { by: PROFILE.name, note: '人工审核通过' });
+      saveStore();
+      syncFromStore();
+      closeDrawer();
+      renderMain();
+      toast('审单通过，已进入待发货队列');
+    } catch (e) {
+      toast(e.message, 'err');
+    }
+  }
+
   /* ---------- 订单批量发货 ---------- */
   function exportSelected() {
     var ids = pickedOrders();
@@ -3207,6 +3312,28 @@
       closeDrawer();
       renderMain();
       toast('已同意售后 ' + id + '，退款 ' + money(r.amount) + ' 将在 1-3 个工作日到账');
+    },
+    'as-receive': function (el) {
+      var id = el.getAttribute('data-id');
+      var r = AFTERSALES.filter(function (x) { return x.id === id; })[0];
+      if (!r) return;
+      var ord = orderById(r.order);
+      var moved = 0;
+      if (store && ord) {
+        ord.items.forEach(function (it) {
+          if (!it.sku) return;
+          try {
+            store.receiveReturn({ sku: it.sku, wh: ord.wh || '杭州主仓', qty: it.qty, aftersaleId: r.id, by: PROFILE.name });
+            moved += it.qty;
+          } catch (e) { /* ignore */ }
+        });
+        saveStore();
+        syncFromStore();
+      }
+      r.status = '已完成';
+      closeDrawer();
+      renderMain();
+      toast('已收货入库 ' + moved + ' 件，退款 ' + money(r.amount) + ' 已发起');
     },
     'as-reject': function (el) {
       var id = el.getAttribute('data-id');
@@ -3342,25 +3469,23 @@
       renderMain();
       toast('商品已' + p.status + '：' + p.name);
     },
-    'order-audit': function (el) {
-      var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
-      if (!o) return;
+    'order-audit': function (el) { auditOne(el.getAttribute('data-id')); },
+    'force-audit': function (el) {
+      var id = el.getAttribute('data-id');
       try {
-        if (store) {
-          var so = store.order(o.id);
-          store.transition(so, '待发货', { by: PROFILE.name, note: '人工审核' });
-          saveStore();
-          syncFromStore();
-        } else {
-          o.status = '待发货';
-        }
+        store.transition(store.order(id), '待发货', { by: PROFILE.name, note: '人工强制放行' });
+        saveStore();
+        syncFromStore();
+        closeModal();
         closeDrawer();
         renderMain();
-        toast('订单已审核通过，进入待发货队列');
+        toast('已强制放行 ' + id);
       } catch (e) {
         toast(e.message, 'err');
       }
     },
+    'batch-review': function () { batchReview(); },
+    'review-confirm': function () { reviewConfirm(); },
     'order-ship': function (el) {
       var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!o) return;
