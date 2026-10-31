@@ -1,5 +1,7 @@
 # s1 ERP · 电商一体化管理后台（前端演示）
 
+[![test](https://github.com/skk200402/erp-demo/actions/workflows/test.yml/badge.svg)](https://github.com/skk200402/erp-demo/actions/workflows/test.yml)
+
 一个电商 ERP 网页端的**高保真交互演示**：纯静态页面，无需构建、无任何依赖，双击 `index.html` 或丢到任意静态托管上就能跑。
 
 > 演示账号：`admin` ／ 密码：`123456`
