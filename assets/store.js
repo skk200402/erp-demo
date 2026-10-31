@@ -590,6 +590,78 @@
     return { pass: pass, blocked: blocked };
   };
 
+  /** 补录历史出库（用于导入期初数据），只动库存与单据，不改订单状态 */
+  Store.prototype.seedShipment = function (id, opts) {
+    var o = this.order(id);
+    if (!o) throw fail('NOT_FOUND', '订单不存在：' + id);
+    var at = (opts && opts.at) || new Date().toISOString();
+    var docId = this.nextId('CK');
+    var lines = [];
+    var self = this;
+    o.items.forEach(function (it) {
+      var mv = self._move({
+        sku: it.sku, wh: o.wh, qty: -it.qty, type: 'SALE_OUT',
+        docId: docId, docType: 'OUT', ref: o.id, at: at, by: 'system'
+      });
+      lines.push({ sku: it.sku, wh: o.wh, qty: -it.qty, ref: o.id, balanceAfter: mv.after });
+      var row = self.stockRow(it.sku, o.wh);
+      if (row && row.locked > 0) row.locked = Math.max(0, row.locked - it.qty);
+    });
+    var doc = {
+      id: docId, type: 'OUT', status: '已出库', refs: [o.id], lines: lines,
+      at: at, by: 'system', carrier: String(o.express || '').split(' ')[0]
+    };
+    this.state.docs.push(doc);
+    return doc;
+  };
+
+  /** 结算口径：按店铺汇总出库金额，扣减退款 */
+  Store.prototype.settlement = function (refundMap) {
+    var self = this;
+    var byShop = {};
+    this.state.docs.forEach(function (doc) {
+      if (doc.type !== 'OUT') return;
+      (doc.refs || []).forEach(function (id) {
+        var o = self.order(id);
+        if (!o) return;
+        var k = o.shop || o.plat || '未分店铺';
+        if (!byShop[k]) byShop[k] = { shop: k, plat: o.plat, outCount: 0, shipped: 0, refund: 0, outDocs: [] };
+        byShop[k].outCount++;
+        byShop[k].shipped += Number(o.amount) || 0;
+        if (byShop[k].outDocs.indexOf(doc.id) === -1) byShop[k].outDocs.push(doc.id);
+      });
+    });
+
+    var rm = refundMap || {};
+    Object.keys(rm).forEach(function (k) {
+      if (byShop[k]) byShop[k].refund = Number(rm[k]) || 0;
+    });
+
+    return Object.keys(byShop).map(function (k) {
+      var r = byShop[k];
+      r.shipped = Math.round(r.shipped * 100) / 100;
+      r.refund = Math.round(r.refund * 100) / 100;
+      r.net = Math.round((r.shipped - r.refund) * 100) / 100;
+      return r;
+    });
+  };
+
+  /** 某店铺的出库单明细，用于对账差异解释 */
+  Store.prototype.outsOf = function (shop) {
+    var self = this;
+    var rows = [];
+    this.state.docs.forEach(function (doc) {
+      if (doc.type !== 'OUT') return;
+      (doc.refs || []).forEach(function (id) {
+        var o = self.order(id);
+        if (!o) return;
+        if ((o.shop || o.plat) !== shop) return;
+        rows.push({ doc: doc.id, order: o.id, buyer: o.buyer, amount: o.amount, at: doc.at });
+      });
+    });
+    return rows;
+  };
+
   /* ---------------- 一致性自检（给测试和运维用） ---------------- */
 
   Store.prototype.audit = function () {
