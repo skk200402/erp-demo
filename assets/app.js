@@ -1,5 +1,5 @@
 /* ============================================================
-   鲸云 ERP · 演示逻辑（无构建、无依赖）
+   s1 ERP · 演示逻辑（无构建、无依赖）
    账号：admin / 123456
    ============================================================ */
 (function () {
@@ -109,7 +109,7 @@
     role: '超级管理员',
     dept: '总经办',
     phone: '13812341028',
-    email: 'admin@jingyun.com',
+    email: 'admin@s1.com',
     joined: '2024-03-12',
     twofa: true,
     alert: true
@@ -475,7 +475,7 @@
         '<aside class="login-brand">' +
           '<div class="brand-top">' +
             '<div class="logo-mark">' + icon('layers', 22) + '</div>' +
-            '<div class="logo-name">鲸云 ERP<small>JINGYUN COMMERCE</small></div>' +
+            '<div class="logo-name">s1 ERP<small>S1 COMMERCE</small></div>' +
             '<span class="brand-pill">DEMO</span>' +
           '</div>' +
           '<div class="brand-mid">' +
@@ -498,10 +498,10 @@
           '<div class="login-card">' +
             '<div class="mobile-brand">' +
               '<div class="logo-mark">' + icon('layers', 20) + '</div>' +
-              '<div class="logo-name">鲸云 ERP<small>JINGYUN COMMERCE</small></div>' +
+              '<div class="logo-name">s1 ERP<small>S1 COMMERCE</small></div>' +
             '</div>' +
             '<h2>欢迎回来</h2>' +
-            '<p class="sub">登录鲸云 ERP 管理后台</p>' +
+            '<p class="sub">登录 s1 ERP 管理后台</p>' +
             '<form class="login-form" id="login-form" novalidate>' +
               '<div class="field" id="f-user">' +
                 '<label for="username">账号</label>' +
@@ -584,7 +584,7 @@
       '<aside class="sidebar">' +
         '<div class="sb-logo">' +
           '<div class="logo-mark">' + icon('layers', 18) + '</div>' +
-          '<div class="logo-name">鲸云 ERP<small>JINGYUN</small></div>' +
+          '<div class="logo-name">s1 ERP<small>S1</small></div>' +
         '</div>' +
         '<nav class="nav">' + navHTML() + '</nav>' +
         '<div class="sb-foot"><div class="store-pill"><i class="dot"></i><span><b>6</b> 个店铺在线</span></div></div>' +
@@ -2797,7 +2797,7 @@
   }
 
   function distInviteModal() {
-    var link = 'https://erp.jingyun.demo/invite?code=DB' + Math.floor(Math.random() * 9000 + 1000);
+    var link = 'https://erp.s1.demo/invite?code=DB' + Math.floor(Math.random() * 9000 + 1000);
     openModal({
       title: '邀请分销商',
       desc: '分销商通过链接注册后可申请一件代发，运费按等级规则结算',
