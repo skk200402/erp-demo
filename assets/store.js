@@ -442,6 +442,72 @@
     return line;
   };
 
+  /** 打单（多波次）：先整体预检，再按 waveSize 拆成若干拣货单，避免拆到一半失败 */
+  Store.prototype.createPicks = function (ids, opts) {
+    var self = this;
+    var size = (opts && opts.waveSize) || 3;
+    var problems = [];
+
+    ids.forEach(function (id) {
+      var o = self.order(id);
+      if (!o) { problems.push({ code: 'NOT_FOUND', message: '订单 ' + id + ' 不存在' }); return; }
+      if (o.status !== '待发货') {
+        problems.push({ code: 'STATE', message: '订单 ' + id + ' 当前为「' + o.status + '」，只有待发货能打单' });
+        return;
+      }
+      if (o.pickId) {
+        var existed = self.doc(o.pickId);
+        if (existed && existed.status !== '已完成') {
+          problems.push({ code: 'DUP_PICK', message: '订单 ' + id + ' 已在拣货单 ' + o.pickId + ' 中' });
+        }
+      }
+    });
+
+    if (!problems.length) {
+      var moveMap = {};
+      ids.forEach(function (id) {
+        var o = self.order(id);
+        (o.items || []).forEach(function (it) {
+          var k = it.sku + '|' + o.wh;
+          if (!moveMap[k]) moveMap[k] = { sku: it.sku, wh: o.wh, qty: 0 };
+          moveMap[k].qty += it.qty;
+        });
+      });
+      Object.keys(moveMap).forEach(function (k) {
+        var r = moveMap[k];
+        var avail = self.available(r.sku, r.wh);
+        if (avail < r.qty) problems.push({ code: 'SHORT', message: '库存不足：' + r.sku + ' 可用 ' + avail + '，需要 ' + r.qty });
+      });
+    }
+
+    if (problems.length) throw fail('PICK_BLOCKED', problems[0].message, problems);
+
+    var waves = [];
+    for (var i = 0; i < ids.length; i += size) waves.push(ids.slice(i, i + size));
+    return waves.map(function (chunk) { return self.createPick(chunk, opts); });
+  };
+
+  /** 扫描验货：拣完之后逐单核验，全部验完才允许复核出库 */
+  Store.prototype.verify = function (docId, orderId) {
+    var doc = this.doc(docId);
+    if (!doc || doc.type !== 'PICK') throw fail('NO_DOC', '拣货单不存在');
+    if (doc.status === '已完成') throw fail('PICK_DONE', '该波次已出库');
+    if (doc.status !== '待复核') throw fail('NOT_PICKED', '还有 SKU 未拣完，不能开始验货');
+    if (doc.refs.indexOf(orderId) === -1) throw fail('NOT_IN_WAVE', '订单 ' + orderId + ' 不在本波次');
+
+    doc.verified = doc.verified || [];
+    if (doc.verified.indexOf(orderId) > -1) throw fail('DUP_VERIFY', '订单 ' + orderId + ' 已经验过');
+
+    doc.verified.push(orderId);
+    return doc;
+  };
+
+  Store.prototype.verifyProgress = function (docId) {
+    var doc = this.doc(docId);
+    if (!doc) return { done: 0, total: 0 };
+    return { done: (doc.verified || []).length, total: doc.refs.length };
+  };
+
   /** 复核出库：校验拣货完成 → 生成出库单并扣库存 */
   Store.prototype.confirmPick = function (docId, opts) {
     var doc = this.doc(docId);
@@ -449,6 +515,10 @@
     if (doc.status === '已完成') throw fail('PICK_DONE', '该拣货单已出库');
     var open = doc.lines.filter(function (l) { return l.picked < l.qty; });
     if (open.length) throw fail('UNPICKED', '还有 ' + open.length + ' 个 SKU 未拣完，不能出库');
+
+    var verified = doc.verified || [];
+    var unverified = doc.refs.filter(function (id) { return verified.indexOf(id) === -1; });
+    if (unverified.length) throw fail('UNVERIFIED', '还有 ' + unverified.length + ' 笔订单未扫描验货');
 
     var res = this.ship(doc.refs, opts);
     doc.status = '已完成';
