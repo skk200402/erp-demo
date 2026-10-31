@@ -121,6 +121,39 @@
   function inTransitOf(sku) { return store ? store.inTransit(sku) : 0; }
   window.inTransitOf = inTransitOf;
 
+  /* 店铺今日订单：空参数返回全平台今日总单量 */
+  function todayOrdersOfShop(shop) {
+    var name = typeof shop === 'string' ? shop : (shop && shop.name) || '';
+    var plat = typeof shop === 'string' ? null : (shop && shop.plat) || null;
+    return ORDERS.filter(function (o) {
+      if (dayBucketOf(o.time) !== 'today') return false;
+      if (!name) return true;
+      if (plat && o.plat !== plat) return false;
+      return name.indexOf(o.shop) > -1 || o.shop.indexOf(name) > -1;
+    }).length;
+  }
+  window.todayOrdersOfShop = todayOrdersOfShop;
+
+  /* 操作日志：真实操作写入，持久化 */
+  var LOG_KEY = 'jy_erp_logs_v1';
+  function saveLogs() {
+    try { localStorage.setItem(LOG_KEY, JSON.stringify(LOGS.slice(0, 50))); } catch (e) { /* ignore */ }
+  }
+  function loadLogs() {
+    try {
+      var arr = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+      if (Array.isArray(arr) && arr.length) LOGS = arr;
+    } catch (e) { /* ignore */ }
+  }
+  function logAction(mod, act) {
+    var d = new Date();
+    var hh = d.getHours() < 10 ? '0' + d.getHours() : String(d.getHours());
+    var mm = d.getMinutes() < 10 ? '0' + d.getMinutes() : String(d.getMinutes());
+    LOGS.unshift({ t: '今天 ' + hh + ':' + mm, who: PROFILE.name, mod: mod, act: act, ip: '10.8.2.' + (10 + Math.floor(Math.random() * 80)) });
+    if (LOGS.length > 50) LOGS.pop();
+    saveLogs();
+  }
+
   /* 把采购单登记进 store：按商品生成明细，已入库的视为全部收齐 */
   function seedPOs() {
     PURCHASES.forEach(function (po, idx) {
@@ -1954,6 +1987,7 @@
           syncFromStore();
           renderMain();
           pushStock(doc.id, sku, v.to, qty);
+          logAction('库存', '调拨 ' + v.from + ' → ' + v.to + ' ' + qty + ' 件');
           toast('调拨完成，调拨单 ' + doc.id);
         } catch (e) {
           toast(e.message, 'err');
@@ -2694,6 +2728,7 @@
           saveStore();
           syncFromStore();
           renderMain();
+          logAction('采购', '采购收货 ' + po.id + '（' + qty + ' 件）');
           pushNotice({ key: 'po-' + po.id, kind: '采购', ico: 'cart', color: '#12b76a', title: '采购到货：' + p.name + ' × ' + qty, sub: '入库单 ' + doc.id, route: 'purchase', t: '刚刚' });
           toast('已入库 ' + qty + ' 件，入库单 ' + doc.id);
         } catch (e) {
@@ -2943,6 +2978,7 @@
       var res = store.confirmPick(docId, { by: PROFILE.name });
       res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
       refreshStockNotice();
+      logAction('订单', '拣货出库 ' + docId);
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - res.orders.length);
@@ -3020,6 +3056,7 @@
       var res = store.ship(ids, { carrier: v.carrier, by: PROFILE.name });
       res.orders.forEach(function (o) { pushTracking(o); pushWaybill(o); });
       refreshStockNotice();
+      logAction('订单', '批量发货 ' + ids.length + ' 笔');
       saveStore();
       syncFromStore();
       KPI[2].value = Math.max(0, Number(KPI[2].value) - ids.length);
@@ -4090,6 +4127,7 @@
 
   initStore();
   initSync();
+  loadLogs();
   loadNotices();
   seedNotices();
   render();
