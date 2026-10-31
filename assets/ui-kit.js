@@ -213,3 +213,17 @@
     var zone = ['A', 'B', 'C'][n % 3];
     return wh.slice(0, 2) + '-' + zone + pad2((n % 20) + 1) + '-' + pad2((n % 6) + 1);
   }
+
+/* 单元格 / 标签 / 缩略图 / 检索索引 */
+  function c2(main, sub, cls) {
+    return '<div class="' + (cls || 'cell-main') + '">' + main + '</div>' + (sub ? '<div class="cell-sub">' + sub + '</div>' : '');
+  }
+  function tag(text, color) { return '<span class="tag ' + color + '"><i></i>' + text + '</span>'; }
+  function thumb(ch, color) {
+    return '<span class="thumb" style="background:' + color + '1a;color:' + color + '">' + ch + '</span>';
+  }
+  function indexSearch(list, fields) {
+    list.forEach(function (r) {
+      r.search = fields.map(function (f) { return r[f] == null ? '' : r[f]; }).join(' ');
+    });
+  }
