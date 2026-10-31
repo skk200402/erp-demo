@@ -42,6 +42,7 @@
       stock: [],
       movements: [],
       docs: [],
+      pos: [],
       blacklist: ['李墨', '测试账号']
     };
   }
@@ -662,12 +663,62 @@
     return rows;
   };
 
+  /* ---------------- 采购单与在途 ---------------- */
+
+  Store.prototype.addPO = function (po) {
+    var rec = {
+      id: po.id,
+      lines: (po.lines || []).map(function (l) { return { sku: l.sku, qty: l.qty, received: 0 }; })
+    };
+    this.state.pos.push(rec);
+    return rec;
+  };
+
+  Store.prototype.po = function (id) {
+    var found = null;
+    this.state.pos.forEach(function (p) { if (p.id === id) found = p; });
+    return found;
+  };
+
+  /** 某 SKU 的在途数量 = 所有采购单未收数量之和 */
+  Store.prototype.inTransit = function (sku) {
+    var total = 0;
+    this.state.pos.forEach(function (po) {
+      po.lines.forEach(function (l) {
+        if (l.sku === sku) total += Math.max(0, l.qty - l.received);
+      });
+    });
+    return total;
+  };
+
+  Store.prototype.poStatus = function (id) {
+    var po = this.po(id);
+    if (!po || !po.lines.length) return null;
+    var total = 0, got = 0;
+    po.lines.forEach(function (l) { total += l.qty; got += Math.min(l.received, l.qty); });
+    if (got === 0) return '待到货';
+    if (got < total) return '部分到货';
+    return '已入库';
+  };
+
   /* ---------------- 采购入库 ---------------- */
 
   /** 采购收货：实收数量入库，生成入库单与台账 */
   Store.prototype.receivePO = function (args) {
     var qty = Number(args.qty);
     if (!qty || qty <= 0) throw fail('BAD_QTY', '收货数量必须大于 0');
+
+    // 若采购单已登记明细，则按明细校验并累计已收数量
+    var po = args.poId ? this.po(args.poId) : null;
+    if (po && po.lines.length) {
+      var line = null;
+      po.lines.forEach(function (l) { if (l.sku === args.sku) line = l; });
+      if (!line) throw fail('NOT_IN_PO', '该 SKU 不在这张采购单的明细中');
+      var remain = line.qty - line.received;
+      if (qty > remain) throw fail('OVER_RECEIVE', '收货数量超过未收数量（剩余 ' + remain + '）');
+      line.received += qty;
+    }
+
     var at = args.at || new Date().toISOString();
     var by = args.by || 'admin';
     var docId = this.nextId('RK');
