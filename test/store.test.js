@@ -251,6 +251,68 @@ test('审单不修改订单状态', () => {
   assert.strictEqual(s.state.movements.length, 3, '只有期初台账');
 });
 
+console.log('\n[拣货作业]');
+
+test('打单聚合 SKU，生成拣货单但不扣库存', () => {
+  const s = seed();
+  s.addOrder({ id: 'O4', status: '待发货', wh: 'W1', qty: 1, amount: 100, buyer: '钱八', addr: '江苏省南京市鼓楼区 1 号', items: [{ sku: 'A', qty: 1 }] });
+  const doc = s.createPick(['O1', 'O4']);
+  assert.strictEqual(doc.type, 'PICK');
+  assert.strictEqual(doc.status, '待拣货');
+  assert.strictEqual(doc.lines.length, 2, 'A 与 B 两行');
+  const lineA = doc.lines.find(l => l.sku === 'A');
+  assert.strictEqual(lineA.qty, 3, 'A 合并 2+1');
+  assert.strictEqual(s.onHand('A', 'W1'), 100, '打单不扣库存');
+  assert.strictEqual(s.state.movements.length, 3, '只有期初台账');
+});
+
+test('拣货进度：部分拣货 / 全部拣完转待复核', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  s.pickLine(doc.id, 'A', 'W1', 1);
+  assert.strictEqual(s.doc(doc.id).status, '待拣货');
+  s.pickLine(doc.id, 'A', 'W1');
+  s.pickLine(doc.id, 'B', 'W1');
+  assert.strictEqual(s.doc(doc.id).status, '待复核');
+});
+
+test('未拣完不能复核出库', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  assert.throws(() => s.confirmPick(doc.id), /未拣完/);
+  assert.strictEqual(s.onHand('A', 'W1'), 100, '库存不变');
+});
+
+test('复核出库后扣库存、生成出库单并关联', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  const res = s.confirmPick(doc.id, { carrier: '中通快递' });
+  assert.strictEqual(res.out.type, 'OUT');
+  assert.strictEqual(s.onHand('A', 'W1'), 98);
+  assert.strictEqual(s.onHand('B', 'W1'), 49);
+  assert.strictEqual(s.doc(doc.id).status, '已完成');
+  assert.strictEqual(s.doc(doc.id).outDocId, res.out.id);
+  assert.strictEqual(s.order('O1').status, '已发货');
+  assert.strictEqual(s.audit().ok, true);
+});
+
+test('同一拣货单不能重复出库，同一订单不能重复打单', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  assert.throws(() => s.createPick(['O1']), /已在拣货单/);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  s.confirmPick(doc.id);
+  assert.throws(() => s.confirmPick(doc.id), /已出库/);
+  assert.strictEqual(s.state.docs.filter(d => d.type === 'OUT').length, 1);
+});
+
+test('非待发货订单不能打单，库存不足也不能打单', () => {
+  const s = seed();
+  assert.throws(() => s.createPick(['O2']), /只有待发货/);
+  assert.throws(() => s.createPick(['O3']), /库存不足/);
+});
+
 const total = passed + failures.length;
 console.log('\n' + '-'.repeat(48));
 console.log(`通过 ${passed}/${total}`);
