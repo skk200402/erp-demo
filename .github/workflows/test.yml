@@ -1,0 +1,20 @@
+﻿name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 领域数据层测试
+        run: node test/store.test.js
+      - name: 同步引擎测试
+        run: node test/sync.test.js
