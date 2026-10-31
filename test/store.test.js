@@ -24,9 +24,9 @@ function seed() {
   s.openStock('A', 'W1', 100, { at: '2026-10-01T00:00:00.000Z' });
   s.openStock('A', 'W2', 10, { at: '2026-10-01T00:00:00.000Z' });
   s.openStock('B', 'W1', 50, { at: '2026-10-01T00:00:00.000Z' });
-  s.addOrder({ id: 'O1', status: '待发货', wh: 'W1', qty: 3, amount: 300, buyer: '张三', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 2 }, { sku: 'B', qty: 1 }] });
-  s.addOrder({ id: 'O2', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '李四', addr: '广东省深圳市南山区科技园 8 号', items: [{ sku: 'A', qty: 1 }] });
-  s.addOrder({ id: 'O3', status: '待发货', wh: 'W1', qty: 500, amount: 900, buyer: '王五', addr: '上海市浦东新区张江路 66 号', items: [{ sku: 'B', qty: 500 }] });
+  s.addOrder({ id: 'O1', status: '待发货', wh: 'W1', qty: 3, amount: 300, buyer: '张三', shop: '旗舰店', plat: '淘宝天猫', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 2 }, { sku: 'B', qty: 1 }] });
+  s.addOrder({ id: 'O2', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '李四', shop: '旗舰店', plat: '淘宝天猫', addr: '广东省深圳市南山区科技园 8 号', items: [{ sku: 'A', qty: 1 }] });
+  s.addOrder({ id: 'O3', status: '待发货', wh: 'W1', qty: 500, amount: 900, buyer: '王五', shop: '旗舰店', plat: '淘宝天猫', addr: '上海市浦东新区张江路 66 号', items: [{ sku: 'B', qty: 500 }] });
   return s;
 }
 
@@ -229,7 +229,7 @@ test('大额订单需要复核', () => {
 
 test('同买家同地址重复下单被拦截', () => {
   const s = seed();
-  s.addOrder({ id: 'O6', status: '待审核', wh: 'W1', qty: 1, amount: 300, buyer: '张三', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 1 }] });
+  s.addOrder({ id: 'O6', status: '待审核', wh: 'W1', qty: 1, amount: 300, buyer: '张三', shop: '旗舰店', plat: '淘宝天猫', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 1 }] });
   const r = s.review('O6');
   assert.strictEqual(r.ok, false);
   assert.ok(r.hits.some(h => h.code === 'DUPLICATE'));
@@ -370,6 +370,45 @@ test('验货进度可查询', () => {
   const p = s.verifyProgress(doc.id);
   assert.strictEqual(p.done, 1);
   assert.strictEqual(p.total, 2);
+});
+
+console.log('\n[对账口径]');
+
+test('seedShipment 补录历史出库：生成出库单与台账，不改订单状态', () => {
+  const s = seed();
+  const doc = s.seedShipment('O1');
+  assert.strictEqual(doc.type, 'OUT');
+  assert.strictEqual(s.order('O1').status, '待发货', '不改状态');
+  assert.strictEqual(s.onHand('A', 'W1'), 98);
+  assert.strictEqual(s.movementsFor('A', 'W1')[0].type, 'SALE_OUT');
+  assert.strictEqual(s.audit().ok, true);
+});
+
+test('结算只统计出库单，扣减退款', () => {
+  const s = seed();
+  s.seedShipment('O1'); // 300
+  const rows = s.settlement({ '旗舰店': 50 });
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].shipped, 300);
+  assert.strictEqual(rows[0].refund, 50);
+  assert.strictEqual(rows[0].net, 250);
+  assert.strictEqual(rows[0].outCount, 1);
+});
+
+test('未出库的订单不计入应收', () => {
+  const s = seed();
+  assert.strictEqual(s.settlement().length, 0, '没有出库单就没有应收');
+  s.seedShipment('O1');
+  assert.strictEqual(s.settlement().length, 1);
+});
+
+test('outsOf 返回该店铺的出库明细', () => {
+  const s = seed();
+  s.seedShipment('O1');
+  s.seedShipment('O2');
+  const rows = s.outsOf('旗舰店');
+  assert.strictEqual(rows.length, 2);
+  assert.ok(rows.every(r => r.doc && r.order));
 });
 
 const total = passed + failures.length;
