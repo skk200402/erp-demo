@@ -428,6 +428,34 @@ test('收货数量非法会被拒绝', () => {
   assert.throws(() => s.receivePO({ poId: 'PO1', sku: 'A', wh: 'W1', qty: -5 }), /大于 0/);
 });
 
+console.log('\n[采购在途]');
+
+test('在途数量随收货减少，入库增加库存在', () => {
+  const s = seed();
+  s.addPO({ id: 'PO9', lines: [{ sku: 'A', qty: 100 }, { sku: 'B', qty: 50 }] });
+  assert.strictEqual(s.inTransit('A'), 100);
+  s.receivePO({ poId: 'PO9', sku: 'A', wh: 'W1', qty: 40 });
+  assert.strictEqual(s.inTransit('A'), 60);
+  assert.strictEqual(s.onHand('A', 'W1'), 140);
+  assert.strictEqual(s.poStatus('PO9'), '部分到货');
+});
+
+test('超收和不在明细中的 SKU 会被拒绝', () => {
+  const s = seed();
+  s.addPO({ id: 'PO9', lines: [{ sku: 'A', qty: 100 }] });
+  assert.throws(() => s.receivePO({ poId: 'PO9', sku: 'A', wh: 'W1', qty: 120 }), /超过未收数量/);
+  assert.throws(() => s.receivePO({ poId: 'PO9', sku: 'B', wh: 'W1', qty: 1 }), /不在/);
+});
+
+test('全部收完：在途归零、状态已入库、台账仍一致', () => {
+  const s = seed();
+  s.addPO({ id: 'PO9', lines: [{ sku: 'A', qty: 10 }] });
+  s.receivePO({ poId: 'PO9', sku: 'A', wh: 'W1', qty: 10 });
+  assert.strictEqual(s.inTransit('A'), 0);
+  assert.strictEqual(s.poStatus('PO9'), '已入库');
+  assert.strictEqual(s.audit().ok, true);
+});
+
 const total = passed + failures.length;
 console.log('\n' + '-'.repeat(48));
 console.log(`通过 ${passed}/${total}`);
