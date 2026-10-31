@@ -411,6 +411,23 @@ test('outsOf 返回该店铺的出库明细', () => {
   assert.ok(rows.every(r => r.doc && r.order));
 });
 
+console.log('\n[采购入库]');
+
+test('采购收货入库增加库存并生成入库单', () => {
+  const s = seed();
+  const doc = s.receivePO({ poId: 'PO1', sku: 'A', wh: 'W1', qty: 50 });
+  assert.strictEqual(doc.type, 'IN');
+  assert.strictEqual(s.onHand('A', 'W1'), 150);
+  assert.strictEqual(s.movementsFor('A', 'W1')[0].type, 'PURCHASE_IN');
+  assert.strictEqual(s.audit().ok, true);
+});
+
+test('收货数量非法会被拒绝', () => {
+  const s = seed();
+  assert.throws(() => s.receivePO({ poId: 'PO1', sku: 'A', wh: 'W1', qty: 0 }), /大于 0/);
+  assert.throws(() => s.receivePO({ poId: 'PO1', sku: 'A', wh: 'W1', qty: -5 }), /大于 0/);
+});
+
 const total = passed + failures.length;
 console.log('\n' + '-'.repeat(48));
 console.log(`通过 ${passed}/${total}`);
