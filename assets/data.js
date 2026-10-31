@@ -352,7 +352,7 @@
     stats: [
       { label: '库存总量', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.avail; }, 0)); }, unit: '件', ico: 'layers', color: '#3568f0' },
       { label: '锁定库存', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.lock; }, 0)); }, unit: '件', ico: 'lock', color: '#7a5af8' },
-      { label: '在途库存', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.transit; }, 0)); }, unit: '件', ico: 'truck', color: '#f79009' },
+      { label: '在途库存', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + inTransitOf(r.sku); }, 0)); }, unit: '件', ico: 'truck', color: '#f79009' },
       { label: '预警 / 断货 SKU', value: function () { return String(scopedInventory().filter(function (r) { return r.status !== '正常'; }).length); }, unit: '个', ico: 'alert', color: '#f04438' }
     ],
     filters: [
@@ -365,7 +365,7 @@
       { title: '仓库', cell: function (r) { return tag(r.wh, 'gray'); } },
       { title: '在库数量', cls: 't-right', cell: function (r) { return '<b class="num" style="color:' + (r.avail === 0 ? '#d92d20' : 'inherit') + '">' + num(r.avail) + '</b>'; } },
       { title: '锁定', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.lock) + '</span>'; } },
-      { title: '在途', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.transit) + '</span>'; } },
+      { title: '在途', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(inTransitOf(r.sku)) + '</span>'; } },
       { title: '安全库存', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.safety) + '</span>'; } },
       { title: '状态', cell: function (r) { return tag(r.status, INV_COLOR[r.status] || 'gray'); } },
       { title: '更新时间', cell: function (r) { return '<span class="cell-sub" style="margin:0">' + r.time + '</span>'; } }
