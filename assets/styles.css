@@ -717,3 +717,34 @@ input.cb{width:15px;height:15px;margin:0;accent-color:var(--primary);cursor:poin
 /* 未读通知小圆点靠左留出版心 */
 .notif-item{padding-left:14px;}
 .notif-dot{left:4px;width:6px;height:6px;}
+
+/* 同步日志 */
+.log-box{max-height:250px;overflow-y:auto;margin-top:6px;}
+.log-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12px;}
+.log-row:last-child{border-bottom:0;}
+
+/* PDA 扫码作业 */
+.pda{max-width:520px;margin:0 auto;padding:10px 12px 40px;}
+.pda-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.pda-head b{display:block;font-size:17px;}
+.pda-head span{font-size:12px;color:var(--muted);}
+.pda-dot{width:8px;height:8px;border-radius:50%;background:#2ed47a;box-shadow:0 0 0 4px rgba(46,212,122,.15);}
+.pda-scan{display:flex;gap:8px;}
+.pda-scan input{flex:1;height:44px;border:1px solid #dfe5ef;border-radius:10px;padding:0 12px;font-size:15px;background:#fff;}
+.pda-scan input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(53,104,240,.12);}
+.pda-scan button{height:44px;padding:0 16px;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;font-size:14px;}
+.pda-hint{font-size:12px;color:var(--muted);margin:8px 2px 12px;}
+.pda-list{display:grid;gap:10px;}
+.pda-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-sm);transition:.2s;}
+.pda-card.pda-hit{border-color:var(--primary);box-shadow:0 0 0 3px rgba(53,104,240,.16);}
+.pda-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;margin-bottom:4px;}
+.pda-sub{font-size:12px;color:var(--muted);line-height:1.6;margin:4px 0 10px;}
+.pda-btn{width:100%;height:44px;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;font-size:14.5px;}
+.pda-btn:active{background:var(--primary-dark);}
+.pda-btn.ghost{background:#f2f5fa;color:#98a5b8;font-weight:500;}
+
+/* PDA 全屏模式 */
+.shell.pda-mode{grid-template-columns:1fr;}
+.shell.pda-mode .sidebar,.shell.pda-mode .topbar{display:none;}
+.shell.pda-mode .content{padding:0;max-width:none;}
+.pda-back{font-size:13px;font-weight:600;color:var(--primary);}
