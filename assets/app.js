@@ -945,6 +945,175 @@
   ];
   indexSearch(FINANCE, ['plat', 'shop', 'period']);
 
+  /* ============================================================
+     数据层：库存台账 + 订单状态机（assets/store.js）
+     ============================================================ */
+  var STATE_KEY = 'jy_erp_state_v1';
+  var SEED_AT = '2026-10-01T00:00:00.000Z';
+  var store = null;
+  var storeLoaded = false;
+  var synthSeq = 0;
+  var SEED_SNAPSHOT = null;
+
+  var MOVE_LABEL = {
+    OPEN: '期初建账',
+    SALE_OUT: '销售出库',
+    TRANSFER_OUT: '调拨出库',
+    TRANSFER_IN: '调拨入库',
+    ADJ: '盘盈亏调整',
+    RETURN_IN: '售后退回入库'
+  };
+
+  function saveStore() {
+    if (!store) return;
+    try { localStorage.setItem(STATE_KEY, store.dump()); } catch (e) { /* ignore */ }
+  }
+
+  function resolveSkuFor(item) {
+    if (item.sku) return item.sku;
+    var p = null, i, j;
+    for (i = 0; i < PRODUCTS.length; i++) if (PRODUCTS[i].name === item.name) { p = PRODUCTS[i]; break; }
+    var row = null;
+    if (p) {
+      for (j = 0; j < INVENTORY.length; j++) {
+        if (INVENTORY[j].sku.indexOf(p.code) === 0) { row = INVENTORY[j]; break; }
+      }
+    }
+    if (!row) {
+      var code = 'X' + pad2(++synthSeq);
+      row = {
+        sku: code, name: item.name + ' ' + item.spec, wh: '杭州主仓',
+        avail: 200, lock: 0, transit: 0, safety: 60, status: '正常', time: '期初'
+      };
+      row.id = row.sku + '@' + row.wh;
+      INVENTORY.push(row);
+    }
+    item.sku = row.sku;
+    return row.sku;
+  }
+
+  function ensureStock(sku, wh, name) {
+    if (!store || store.stockRow(sku, wh)) return;
+    store.openStock(sku, wh, 200, { at: SEED_AT, ref: '期初建账', name: name });
+    var exists = false;
+    for (var i = 0; i < INVENTORY.length; i++) {
+      if (INVENTORY[i].sku === sku && INVENTORY[i].wh === wh) { exists = true; break; }
+    }
+    if (!exists) {
+      var known = null;
+      for (var j = 0; j < INVENTORY.length; j++) if (INVENTORY[j].sku === sku) { known = INVENTORY[j]; break; }
+      var row = {
+        sku: sku, name: name || (known ? known.name : sku), wh: wh,
+        avail: 200, lock: 0, transit: 0, safety: known ? known.safety : 60, status: '正常', time: '期初'
+      };
+      row.id = sku + '@' + wh;
+      INVENTORY.push(row);
+    }
+  }
+
+  function seedStore() {
+    store = new ERPStore();
+    INVENTORY.forEach(function (r) {
+      store.openStock(r.sku, r.wh, r.avail, { locked: r.lock, at: SEED_AT, ref: '期初建账', name: r.name });
+    });
+    ORDERS.forEach(function (o) {
+      o.wh = o.wh || '杭州主仓';
+      o.items.forEach(function (it) {
+        resolveSkuFor(it);
+        ensureStock(it.sku, o.wh, it.name);
+      });
+      store.addOrder({
+        id: o.id, wh: o.wh, status: o.status, qty: o.qty, amount: o.amount,
+        buyer: o.buyer, plat: o.plat, shop: o.shop, time: o.time,
+        express: o.express,
+        items: o.items.map(function (it) {
+          return { sku: it.sku, qty: it.qty, price: it.price, name: it.name, spec: it.spec };
+        })
+      });
+    });
+  }
+
+  function initStore() {
+    if (!SEED_SNAPSHOT) {
+      try {
+        SEED_SNAPSHOT = JSON.stringify({
+          orders: ORDERS,
+          inv: INVENTORY,
+          kpi: KPI.map(function (k) { return k.value; })
+        });
+      } catch (e) { SEED_SNAPSHOT = null; }
+    }
+    try {
+      store = new ERPStore();
+      var saved = null;
+      try { saved = localStorage.getItem(STATE_KEY); } catch (e) { saved = null; }
+      if (saved && store.load(saved)) {
+        storeLoaded = true;
+        // 恢复上次会话里新增的订单与库存行
+        store.state.orders.forEach(function (so) {
+          var hit = false;
+          for (var i = 0; i < ORDERS.length; i++) if (ORDERS[i].id === so.id) { hit = true; break; }
+          if (!hit) {
+            ORDERS.push({
+              id: so.id, plat: so.plat, shop: so.shop, buyer: so.buyer, status: so.status,
+              time: so.time, wh: so.wh, express: so.express, qty: so.qty, amount: so.amount,
+              items: (so.items || []).map(function (it) {
+                return { name: it.name, spec: it.spec, qty: it.qty, price: it.price, sku: it.sku };
+              }),
+              remark: '', addr: '—', phone: '—'
+            });
+          }
+        });
+      } else {
+        seedStore();
+        saveStore();
+      }
+      syncFromStore();
+    } catch (e) {
+      store = null;
+      try { console.error('[store] init failed', e); } catch (e2) { /* ignore */ }
+    }
+  }
+
+  function syncFromStore() {
+    if (!store) return;
+    store.state.orders.forEach(function (so) {
+      for (var i = 0; i < ORDERS.length; i++) {
+        if (ORDERS[i].id === so.id) {
+          var o = ORDERS[i];
+          var prev = o.status;
+          o.status = so.status;
+          o.express = so.express;
+          o.wh = so.wh;
+          if (prev !== so.status) o.time = o.time;
+          if (so.items) {
+            for (var k = 0; k < so.items.length && k < o.items.length; k++) o.items[k].sku = so.items[k].sku;
+          }
+          break;
+        }
+      }
+    });
+
+    store.state.stock.forEach(function (sr) {
+      var found = null;
+      for (var j = 0; j < INVENTORY.length; j++) {
+        if (INVENTORY[j].sku === sr.sku && INVENTORY[j].wh === sr.wh) { found = INVENTORY[j]; break; }
+      }
+      if (!found) {
+        var row = {
+          sku: sr.sku, name: sr.name || sr.sku, wh: sr.wh,
+          avail: sr.qty, lock: sr.locked, transit: 0, safety: 60, status: '正常', time: '刚刚'
+        };
+        row.id = sr.sku + '@' + sr.wh;
+        INVENTORY.push(row);
+      } else {
+        found.avail = sr.qty;
+        found.lock = sr.locked;
+        found.status = invStatus(found);
+      }
+    });
+  }
+
   /* ---------- 模块配置 ---------- */
   var AS_COLOR = { '待审核': 'orange', '待买家退货': 'blue', '待收货': 'blue', '退款中': 'purple', '已完成': 'green', '已关闭': 'gray' };
   var PD_COLOR = { '在售': 'green', '下架': 'gray', '待上架': 'orange' };
@@ -1048,10 +1217,10 @@
       { label: '新建调拨', ico: 'truck', act: 'inv-transfer', primary: true }
     ],
     stats: [
-      { label: '库存总量', value: '32,480', unit: '件', ico: 'layers', color: '#3568f0' },
-      { label: '锁定库存', value: '1,240', unit: '件', ico: 'lock', color: '#7a5af8' },
-      { label: '在途库存', value: '860', unit: '件', ico: 'truck', color: '#f79009' },
-      { label: '预警 / 断货 SKU', value: '46', unit: '个', ico: 'alert', color: '#f04438' }
+      { label: '库存总量', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.avail; }, 0)); }, unit: '件', ico: 'layers', color: '#3568f0' },
+      { label: '锁定库存', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.lock; }, 0)); }, unit: '件', ico: 'lock', color: '#7a5af8' },
+      { label: '在途库存', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.transit; }, 0)); }, unit: '件', ico: 'truck', color: '#f79009' },
+      { label: '预警 / 断货 SKU', value: function () { return String(INVENTORY.filter(function (r) { return r.status !== '正常'; }).length); }, unit: '个', ico: 'alert', color: '#f04438' }
     ],
     filters: [
       { key: 'kw', type: 'search', ph: 'SKU / 商品名称' },
@@ -1061,7 +1230,7 @@
     columns: [
       { title: 'SKU / 商品', cell: function (r) { return c2('<span class="mono">' + r.sku + '</span>', r.name, 'cell-main mono'); } },
       { title: '仓库', cell: function (r) { return tag(r.wh, 'gray'); } },
-      { title: '可用库存', cls: 't-right', cell: function (r) { return '<b class="num" style="color:' + (r.avail === 0 ? '#d92d20' : 'inherit') + '">' + num(r.avail) + '</b>'; } },
+      { title: '在库数量', cls: 't-right', cell: function (r) { return '<b class="num" style="color:' + (r.avail === 0 ? '#d92d20' : 'inherit') + '">' + num(r.avail) + '</b>'; } },
       { title: '锁定', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.lock) + '</span>'; } },
       { title: '在途', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.transit) + '</span>'; } },
       { title: '安全库存', cls: 't-right', cell: function (r) { return '<span class="num" style="color:var(--muted)">' + num(r.safety) + '</span>'; } },
@@ -1842,20 +2011,35 @@
     var plat = ['淘宝天猫', '京东', '抖音小店'][i % 3];
     var shop = { '淘宝天猫': '旗舰店', '京东': '京东自营店', '抖音小店': '抖音旗舰店' }[plat];
     var seq = ORDERS.length + 1;
-    ORDERS.unshift({
+    var item = { name: p.name, spec: p.specs[0], qty: 1, price: p.priceMin };
+    var order = {
       id: 'SO' + stamp() + (100 + seq),
       plat: plat, shop: shop,
       buyer: SYNC_BUYERS[i % SYNC_BUYERS.length],
       status: '待审核',
       time: '刚刚',
-      items: [{ name: p.name, spec: p.specs[0], qty: 1, price: p.priceMin }],
+      wh: '杭州主仓',
+      items: [item],
       qty: 1,
       amount: p.priceMin,
       remark: '',
       addr: '浙江省杭州市余杭区文一西路 969 号 ' + (3 + i) + ' 幢 1201 室',
       phone: '138****' + (2000 + seq * 3).toString().slice(-4),
       express: '—'
-    });
+    };
+    ORDERS.unshift(order);
+
+    if (store) {
+      try {
+        resolveSkuFor(item);
+        ensureStock(item.sku, order.wh, item.name);
+        store.addOrder({
+          id: order.id, wh: order.wh, status: order.status, qty: order.qty, amount: order.amount,
+          buyer: order.buyer, plat: order.plat, shop: order.shop, time: order.time, express: order.express,
+          items: [{ sku: item.sku, qty: item.qty, price: item.price, name: item.name, spec: item.spec }]
+        });
+      } catch (e) { /* 同步失败不影响页面 */ }
+    }
   }
 
   function doSync(btn) {
@@ -2094,28 +2278,29 @@
     return '正常';
   }
 
+  function fmtTs(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 16).replace('T', ' ');
+    return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
   function invFlowDrawer(key) {
     var row = INVENTORY.filter(function (r) { return r.id === key; })[0] ||
       INVENTORY.filter(function (r) { return r.sku === key; })[0];
     if (!row) return;
-    var types = [
-      { t: '订单出库', n: -12, doc: 'SO202610310004' },
-      { t: '采购入库', n: 300, doc: 'PO20261028012' },
-      { t: '订单出库', n: -8, doc: 'SO202610300118' },
-      { t: '调拨入库', n: 60, doc: 'TR20261028003' },
-      { t: '售后退回入库', n: 2, doc: 'AS202610280022' },
-      { t: '订单出库', n: -26, doc: 'SO202610290045' },
-      { t: '盘盈调整', n: 5, doc: 'CK20261025002' },
-      { t: '订单出库', n: -15, doc: 'SO202610240012' }
-    ];
-    var balance = row.avail + row.lock;
-    var rows = types.map(function (x) {
-      balance -= x.n;
-      return '<tr><td class="cell-sub" style="margin:0">' + x.doc + '<div class="cell-main" style="margin-top:2px">' + x.t + '</div></td>' +
-        '<td class="t-right num" style="color:' + (x.n > 0 ? '#06894e' : '#b42318') + ';font-weight:600">' +
-        (x.n > 0 ? '+' : '') + x.n + '</td>' +
-        '<td class="t-right num">' + Math.max(0, balance) + '</td></tr>';
-    }).join('');
+
+    var moves = (store && store.movementsFor(row.sku, row.wh)) || [];
+    var rows = moves.length ? moves.map(function (m) {
+      return '<tr><td class="cell-sub" style="margin:0;white-space:nowrap">' + fmtTs(m.at) + '</td>' +
+        '<td class="mono" style="font-size:11.5px;color:var(--text-2)">' + (m.docId || '—') + '<div class="cell-sub">' + (MOVE_LABEL[m.type] || m.type) + '</div></td>' +
+        '<td class="t-right num" style="color:' + (m.qty > 0 ? '#06894e' : '#b42318') + ';font-weight:600">' +
+          (m.qty > 0 ? '+' : '') + m.qty + '</td>' +
+        '<td class="t-right num">' + m.after + '</td></tr>';
+    }).join('') : '<tr><td colspan="4"><div class="empty" style="padding:26px"><h3 style="font-size:13px">还没有库存变动</h3>' +
+      '<p style="font-size:12px">发货、调拨、盘点后这里会出现台账</p></div></td></tr>';
+
+    var audit = store ? store.audit() : { ok: true, problems: [] };
 
     showDrawer('<div class="overlay" data-action="close-drawer"></div>' +
       '<aside class="drawer" role="dialog" aria-modal="true" aria-label="库存流水">' +
@@ -2125,15 +2310,18 @@
         '<div class="dw-body">' +
           '<div class="sec"><div class="sec-t">库存分布</div>' +
             '<div class="sum">' +
-              '<div class="sum-row"><span>可用库存</span><b>' + num(row.avail) + '</b></div>' +
+              '<div class="sum-row"><span>在库数量</span><b>' + num(row.avail) + '</b></div>' +
               '<div class="sum-row"><span>锁定库存</span><span>' + num(row.lock) + '</span></div>' +
               '<div class="sum-row"><span>在途库存</span><span>' + num(row.transit) + '</span></div>' +
-              '<div class="sum-row total"><span>账面合计</span><b>' + num(row.avail + row.lock + row.transit) + '</b></div>' +
+              '<div class="sum-row total"><span>账面合计</span><b>' + num(row.avail) + '</b></div>' +
+            '</div>' +
+            '<div class="hint" style="margin-top:8px;font-size:11.5px;color:' + (audit.ok ? 'var(--muted)' : '#b42318') + '">' +
+              (audit.ok ? '台账校验通过：' + moves.length + ' 条流水与库存一致' : '台账校验异常：' + audit.problems[0].message) +
             '</div>' +
           '</div>' +
-          '<div class="sec"><div class="sec-t">最近库存流水</div>' +
+          '<div class="sec"><div class="sec-t">库存台账（' + moves.length + '）</div>' +
             '<table class="tb" style="border:1px solid var(--line);border-radius:9px;overflow:hidden">' +
-              '<thead><tr><th>来源单据 / 类型</th><th class="t-right">变动</th><th class="t-right">结存</th></tr></thead>' +
+              '<thead><tr><th>时间 / 单据</th><th>类型</th><th class="t-right">变动</th><th class="t-right">结存</th></tr></thead>' +
               '<tbody>' + rows + '</tbody></table>' +
           '</div>' +
         '</div>' +
@@ -2157,13 +2345,18 @@
       onSubmit: function (v) {
         var row = INVENTORY[Number(v.idx)];
         if (!row) return false;
-        var real = Number(v.real);
-        var diff = real - row.avail;
-        row.avail = real;
-        row.status = invStatus(row);
-        row.time = '刚刚';
-        renderMain();
-        toast('盘点完成：' + row.sku + ' 盈亏 ' + (diff > 0 ? '+' : '') + diff + ' 件');
+        if (!store) { toast('数据层未就绪', 'err'); return false; }
+        try {
+          var res = store.check({ sku: row.sku, wh: row.wh, real: Number(v.real), by: PROFILE.name });
+          saveStore();
+          syncFromStore();
+          renderMain();
+          toast('盘点完成，盘点单 ' + res.doc.id +
+            (res.diff === 0 ? '，账实相符' : '，差异 ' + (res.diff > 0 ? '+' : '') + res.diff));
+        } catch (e) {
+          toast(e.message, 'err');
+          return false;
+        }
       }
     });
   }
@@ -2185,26 +2378,17 @@
         var parts = String(v.from).split('|');
         var sku = parts[0], fromWh = parts[1];
         var qty = Number(v.qty);
-        if (v.to === fromWh) { toast('调入仓不能与调出仓相同', 'err'); return false; }
-        if (!qty || qty <= 0) { toast('请填写有效的调拨数量', 'err'); return false; }
-        var src = INVENTORY.filter(function (r) { return r.sku === sku && r.wh === fromWh; })[0];
-        if (!src || src.avail < qty) { toast('调出仓可用库存不足', 'err'); return false; }
-        src.avail -= qty;
-        src.status = invStatus(src);
-        src.time = '刚刚';
-        var dst = INVENTORY.filter(function (r) { return r.sku === sku && r.wh === v.to; })[0];
-        if (dst) {
-          dst.avail += qty;
-          dst.status = invStatus(dst);
-          dst.time = '刚刚';
-        } else {
-          INVENTORY.unshift({
-            sku: sku, name: src.name, wh: v.to, avail: qty, lock: 0, transit: 0,
-            safety: src.safety, status: invStatus({ avail: qty, safety: src.safety }), time: '刚刚'
-          });
+        if (!store) { toast('数据层未就绪', 'err'); return false; }
+        try {
+          var doc = store.transfer({ sku: sku, fromWh: fromWh, toWh: v.to, qty: qty, by: PROFILE.name });
+          saveStore();
+          syncFromStore();
+          renderMain();
+          toast('调拨完成，调拨单 ' + doc.id);
+        } catch (e) {
+          toast(e.message, 'err');
+          return false;
         }
-        renderMain();
-        toast('调拨完成：' + sku + ' ' + fromWh + ' → ' + v.to + ' ' + qty + ' 件');
       }
     });
   }
@@ -2590,6 +2774,7 @@
     return '<div class="page-head">' +
         '<div><h1>系统设置</h1><p class="desc">成员、角色权限与操作日志，权限可细化到菜单 / 按钮 / 数据范围</p></div>' +
         '<div class="head-actions">' +
+          '<button class="btn btn-ghost" data-action="reset-demo">' + icon('refresh', 15) + '重置演示数据</button>' +
           '<button class="btn btn-ghost" data-action="export">' + icon('download', 15) + '导出日志</button>' +
           '<button class="btn btn-primary" data-action="member-new">' + icon('plus', 15) + '新增成员</button>' +
         '</div>' +
@@ -2845,12 +3030,39 @@
   function batchShip() {
     var ids = pickedOrders();
     if (!ids.length) { toast('请先在列表左侧勾选订单', 'err'); return; }
+
+    // 原子预检：状态 + 库存，任何一条不满足就整批拒绝
+    if (store) {
+      var pre = store.preflightShip(ids);
+      if (!pre.ok) {
+        openModal({
+          title: '无法发货（' + pre.problems.length + ' 个问题）',
+          desc: '发货是原子操作：只要有一条不满足条件，整批都不会出库，也不会产生台账。',
+          wide: true,
+          body: '<div class="confirm-list">' + pre.problems.map(function (p) {
+            return '<div class="confirm-row"><span>' + esc(p.message) + '</span></div>';
+          }).join('') + '</div>' +
+            '<div class="hint" style="margin-top:10px;font-size:12px;color:var(--muted)">库存不足的 SKU 可以先在库存页调拨，或到采购页补货。</div>',
+          foot: '<button class="btn btn-ghost" data-action="close-modal">关闭</button>' +
+            '<button class="btn btn-ghost" data-action="nav" data-route="inventory">去库存页</button>' +
+            '<button class="btn btn-primary" data-action="nav" data-route="purchase">去补货</button>'
+        });
+        return;
+      }
+    }
+
     var rows = ORDERS.filter(function (o) { return ids.indexOf(o.id) > -1; });
     var total = rows.reduce(function (s, o) { return s + o.amount; }, 0);
+    var whSet = {};
+    rows.forEach(function (o) { whSet[o.wh || '杭州主仓'] = 1; });
+    var whLabel = Object.keys(whSet).join('、');
+
     openModal({
       title: '批量发货（' + rows.length + ' 笔）',
-      desc: '发货后物流单号会实时回传对应平台店铺，买家即可查询轨迹',
+      desc: '确认后生成一张出库单并扣减库存，物流单号实时回传对应平台店铺',
       body: '<div class="form-grid">' +
+          '<div class="mfield full"><label>发货仓库</label><input value="' + esc(whLabel) + '" readonly>' +
+            '<div class="hint">按订单所属仓库出库，库存从该仓扣减</div></div>' +
           '<div class="mfield full"><label>快递公司</label><select data-mf="carrier">' +
             ['顺丰速运', '中通快递', '圆通速递', '京东物流'].map(function (c) { return '<option>' + c + '</option>'; }).join('') +
           '</select></div>' +
@@ -2868,17 +3080,20 @@
   function shipConfirm() {
     var v = modalValues();
     var ids = pickedOrders();
-    var rows = ORDERS.filter(function (o) { return ids.indexOf(o.id) > -1; });
-    if (!rows.length) { closeModal(); return; }
-    rows.forEach(function (o) {
-      o.status = '已发货';
-      o.express = v.carrier + ' SF' + (780000 + Math.floor(Math.random() * 9000));
-    });
-    KPI[2].value = Math.max(0, Number(KPI[2].value) - rows.length);
-    ui.sel = {};
-    closeModal();
-    renderMain();
-    toast('已发货 ' + rows.length + ' 笔' + (v.print ? '，面单已发送至打印队列' : ''));
+    if (!store) { toast('数据层未就绪，无法发货', 'err'); return false; }
+    try {
+      var res = store.ship(ids, { carrier: v.carrier, by: PROFILE.name });
+      saveStore();
+      syncFromStore();
+      KPI[2].value = Math.max(0, Number(KPI[2].value) - ids.length);
+      ui.sel = {};
+      closeModal();
+      renderMain();
+      toast('已发货 ' + ids.length + ' 笔，出库单 ' + res.doc.id);
+    } catch (e) {
+      toast(e.message, 'err');
+      return false;
+    }
   }
 
   /* ---------- 动作分发表 ---------- */
@@ -3035,22 +3250,68 @@
     'order-audit': function (el) {
       var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!o) return;
-      o.status = '待发货';
-      closeDrawer();
-      renderMain();
-      toast('订单已审核通过，进入待发货队列');
+      try {
+        if (store) {
+          var so = store.order(o.id);
+          store.transition(so, '待发货', { by: PROFILE.name, note: '人工审核' });
+          saveStore();
+          syncFromStore();
+        } else {
+          o.status = '待发货';
+        }
+        closeDrawer();
+        renderMain();
+        toast('订单已审核通过，进入待发货队列');
+      } catch (e) {
+        toast(e.message, 'err');
+      }
     },
     'order-ship': function (el) {
       var o = ORDERS.filter(function (x) { return x.id === el.getAttribute('data-id'); })[0];
       if (!o) return;
-      o.status = '已发货';
-      o.express = '顺丰速运 SF' + (780000 + Math.floor(Math.random() * 9000));
-      KPI[2].value = Math.max(0, Number(KPI[2].value) - 1);
-      closeDrawer();
-      renderMain();
-      toast('已发货，物流单号 ' + o.express.split(' ')[1] + ' 已回传平台');
+      if (!store) { toast('数据层未就绪', 'err'); return; }
+      try {
+        var res = store.ship([o.id], { carrier: '顺丰速运', by: PROFILE.name });
+        saveStore();
+        syncFromStore();
+        KPI[2].value = Math.max(0, Number(KPI[2].value) - 1);
+        closeDrawer();
+        renderMain();
+        toast('已发货，出库单 ' + res.doc.id + '，单号 ' + o.express.split(' ')[1]);
+      } catch (e) {
+        toast(e.message, 'err');
+      }
     },
     'member-new': function () { memberNewModal(); },
+    'reset-demo': function () {
+      openConfirmModal({
+        title: '重置演示数据',
+        desc: '会清空浏览器里保存的订单状态、库存台账与单据，恢复到初始演示数据。此操作不可撤销。',
+        submitText: '确认重置',
+        danger: true,
+        list: ['订单状态与物流单号', '库存数量与全部台账', '出库 / 调拨 / 盘点单据'],
+        onConfirm: function () {
+          try { localStorage.removeItem(STATE_KEY); } catch (e) { /* ignore */ }
+          if (SEED_SNAPSHOT) {
+            try {
+              var snap = JSON.parse(SEED_SNAPSHOT);
+              ORDERS.length = 0;
+              snap.orders.forEach(function (o) { ORDERS.push(o); });
+              INVENTORY.length = 0;
+              snap.inv.forEach(function (r) { INVENTORY.push(r); });
+              snap.kpi.forEach(function (v, i) { if (KPI[i]) KPI[i].value = v; });
+            } catch (e) { /* ignore */ }
+          }
+          store = null;
+          storeLoaded = false;
+          synthSeq = 0;
+          initStore();
+          ui.sel = {};
+          render();
+          toast('演示数据已重置');
+        }
+      });
+    },
     'profile-edit': function () { profileEditModal(); },
     'pwd-change': function () { pwdModal(); },
     'toggle-notif': function () {
@@ -3551,6 +3812,7 @@
   if (ROUTE_TITLE[initial]) ui.route = initial;
   if (session && !ROUTE_TITLE[ui.route]) ui.route = 'dashboard';
 
+  initStore();
   render();
 
   if (!session) {
