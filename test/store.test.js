@@ -24,9 +24,9 @@ function seed() {
   s.openStock('A', 'W1', 100, { at: '2026-10-01T00:00:00.000Z' });
   s.openStock('A', 'W2', 10, { at: '2026-10-01T00:00:00.000Z' });
   s.openStock('B', 'W1', 50, { at: '2026-10-01T00:00:00.000Z' });
-  s.addOrder({ id: 'O1', status: '待发货', wh: 'W1', qty: 3, items: [{ sku: 'A', qty: 2 }, { sku: 'B', qty: 1 }] });
-  s.addOrder({ id: 'O2', status: '待审核', wh: 'W1', qty: 1, items: [{ sku: 'A', qty: 1 }] });
-  s.addOrder({ id: 'O3', status: '待发货', wh: 'W1', qty: 500, items: [{ sku: 'B', qty: 500 }] });
+  s.addOrder({ id: 'O1', status: '待发货', wh: 'W1', qty: 3, amount: 300, buyer: '张三', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 2 }, { sku: 'B', qty: 1 }] });
+  s.addOrder({ id: 'O2', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '李四', addr: '广东省深圳市南山区科技园 8 号', items: [{ sku: 'A', qty: 1 }] });
+  s.addOrder({ id: 'O3', status: '待发货', wh: 'W1', qty: 500, amount: 900, buyer: '王五', addr: '上海市浦东新区张江路 66 号', items: [{ sku: 'B', qty: 500 }] });
   return s;
 }
 
@@ -193,6 +193,62 @@ test('audit 能发现人为篡改', () => {
   const res = s.audit();
   assert.strictEqual(res.ok, false);
   assert.ok(res.problems.some(p => p.code === 'STOCK_MISMATCH'));
+});
+
+console.log('\n[审单规则]');
+
+test('正常订单通过审单', () => {
+  const s = seed();
+  const r = s.review('O1');
+  assert.strictEqual(r.ok, true, JSON.stringify(r.hits));
+});
+
+test('黑名单买家被拦截', () => {
+  const s = seed();
+  s.addOrder({ id: 'O9', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '李墨', addr: '浙江省杭州市西湖区 1 号', items: [{ sku: 'A', qty: 1 }] });
+  const r = s.review('O9');
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.hits.some(h => h.code === 'BLACKLIST'));
+});
+
+test('地址缺少省市被拦截', () => {
+  const s = seed();
+  s.addOrder({ id: 'O8', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '赵六', addr: '阳光小区 3 号楼 501', items: [{ sku: 'A', qty: 1 }] });
+  const r = s.review('O8');
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.hits.some(h => h.code === 'ADDRESS'));
+});
+
+test('大额订单需要复核', () => {
+  const s = seed();
+  s.addOrder({ id: 'O7', status: '待审核', wh: 'W1', qty: 1, amount: 8800, buyer: '孙七', addr: '北京市朝阳区望京 8 号', items: [{ sku: 'A', qty: 1 }] });
+  const r = s.review('O7');
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.hits.some(h => h.code === 'AMOUNT'));
+});
+
+test('同买家同地址重复下单被拦截', () => {
+  const s = seed();
+  s.addOrder({ id: 'O6', status: '待审核', wh: 'W1', qty: 1, amount: 300, buyer: '张三', addr: '浙江省杭州市余杭区文一西路 1 号', items: [{ sku: 'A', qty: 1 }] });
+  const r = s.review('O6');
+  assert.strictEqual(r.ok, false);
+  assert.ok(r.hits.some(h => h.code === 'DUPLICATE'));
+});
+
+test('reviewAll 把通过与拦截分开', () => {
+  const s = seed();
+  s.addOrder({ id: 'O5', status: '待审核', wh: 'W1', qty: 1, amount: 100, buyer: '李墨', addr: '浙江省杭州市 1 号', items: [{ sku: 'A', qty: 1 }] });
+  const res = s.reviewAll(['O1', 'O5', 'O2']);
+  assert.deepStrictEqual(res.pass, ['O1', 'O2']);
+  assert.strictEqual(res.blocked.length, 1);
+  assert.strictEqual(res.blocked[0].id, 'O5');
+});
+
+test('审单不修改订单状态', () => {
+  const s = seed();
+  s.review('O2');
+  assert.strictEqual(s.order('O2').status, '待审核');
+  assert.strictEqual(s.state.movements.length, 3, '只有期初台账');
 });
 
 const total = passed + failures.length;
