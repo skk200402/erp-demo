@@ -287,6 +287,7 @@ test('复核出库后扣库存、生成出库单并关联', () => {
   const s = seed();
   const doc = s.createPick(['O1']);
   doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  s.verify(doc.id, 'O1');
   const res = s.confirmPick(doc.id, { carrier: '中通快递' });
   assert.strictEqual(res.out.type, 'OUT');
   assert.strictEqual(s.onHand('A', 'W1'), 98);
@@ -302,6 +303,7 @@ test('同一拣货单不能重复出库，同一订单不能重复打单', () =>
   const doc = s.createPick(['O1']);
   assert.throws(() => s.createPick(['O1']), /已在拣货单/);
   doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  s.verify(doc.id, 'O1');
   s.confirmPick(doc.id);
   assert.throws(() => s.confirmPick(doc.id), /已出库/);
   assert.strictEqual(s.state.docs.filter(d => d.type === 'OUT').length, 1);
@@ -311,6 +313,63 @@ test('非待发货订单不能打单，库存不足也不能打单', () => {
   const s = seed();
   assert.throws(() => s.createPick(['O2']), /只有待发货/);
   assert.throws(() => s.createPick(['O3']), /库存不足/);
+});
+
+console.log('\n[波次与验货]');
+
+test('createPicks 按 waveSize 拆分波次', () => {
+  const s = seed();
+  s.addOrder({ id: 'O4', status: '待发货', wh: 'W1', qty: 1, amount: 100, buyer: '钱八', addr: '江苏省南京市鼓楼区 1 号', items: [{ sku: 'A', qty: 1 }] });
+  s.addOrder({ id: 'O5', status: '待发货', wh: 'W1', qty: 1, amount: 100, buyer: '孙九', addr: '江苏省苏州市姑苏区 2 号', items: [{ sku: 'B', qty: 1 }] });
+  const waves = s.createPicks(['O1', 'O4', 'O5'], { waveSize: 2 });
+  assert.strictEqual(waves.length, 2, '3 单按 2 单/波拆成 2 波');
+  assert.strictEqual(waves[0].refs.length, 2);
+  assert.strictEqual(waves[1].refs.length, 1);
+  assert.notStrictEqual(waves[0].id, waves[1].id);
+});
+
+test('未拣完不能开始验货', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  assert.throws(() => s.verify(doc.id, 'O1'), /未拣完/);
+});
+
+test('不在本波次的订单不能验货', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  assert.throws(() => s.verify(doc.id, 'O2'), /不在本波次/);
+});
+
+test('重复验货会被拒绝', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  s.verify(doc.id, 'O1');
+  assert.throws(() => s.verify(doc.id, 'O1'), /已经验过/);
+});
+
+test('全部验货后才能复核出库', () => {
+  const s = seed();
+  const doc = s.createPick(['O1']);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  assert.throws(() => s.confirmPick(doc.id), /未扫描验货/);
+  s.verify(doc.id, 'O1');
+  const res = s.confirmPick(doc.id);
+  assert.strictEqual(res.out.type, 'OUT');
+  assert.strictEqual(s.order('O1').status, '已发货');
+  assert.strictEqual(s.audit().ok, true);
+});
+
+test('验货进度可查询', () => {
+  const s = seed();
+  s.addOrder({ id: 'O4', status: '待发货', wh: 'W1', qty: 1, amount: 100, buyer: '钱八', addr: '江苏省南京市鼓楼区 1 号', items: [{ sku: 'A', qty: 1 }] });
+  const doc = s.createPick(['O1', 'O4']);
+  doc.lines.forEach(l => s.pickLine(doc.id, l.sku, l.wh));
+  s.verify(doc.id, 'O1');
+  const p = s.verifyProgress(doc.id);
+  assert.strictEqual(p.done, 1);
+  assert.strictEqual(p.total, 2);
 });
 
 const total = passed + failures.length;
