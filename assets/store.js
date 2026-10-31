@@ -371,6 +371,91 @@
     return doc;
   };
 
+  /* ---------------- 拣货（波次作业） ---------------- */
+
+  /** 打单：把待发货订单聚合成一张波次拣货单，不扣库存 */
+  Store.prototype.createPick = function (ids, opts) {
+    var self = this;
+    var problems = [];
+    var orders = [];
+
+    ids.forEach(function (id) {
+      var o = self.order(id);
+      if (!o) { problems.push({ code: 'NOT_FOUND', message: '订单 ' + id + ' 不存在' }); return; }
+      if (o.status !== '待发货') {
+        problems.push({ code: 'STATE', message: '订单 ' + id + ' 当前为「' + o.status + '」，只有待发货能打单' });
+        return;
+      }
+      if (o.pickId) {
+        var existed = self.doc(o.pickId);
+        if (existed && existed.status !== '已完成') {
+          problems.push({ code: 'DUP_PICK', message: '订单 ' + id + ' 已在拣货单 ' + o.pickId + ' 中' });
+          return;
+        }
+      }
+      orders.push(o);
+    });
+
+    var map = {};
+    orders.forEach(function (o) {
+      (o.items || []).forEach(function (it) {
+        var k = it.sku + '|' + o.wh;
+        if (!map[k]) map[k] = { sku: it.sku, wh: o.wh, name: it.name || '', qty: 0, picked: 0 };
+        map[k].qty += it.qty;
+      });
+    });
+
+    var lines = Object.keys(map).map(function (k) { return map[k]; });
+    lines.forEach(function (l) {
+      var avail = self.available(l.sku, l.wh);
+      if (avail < l.qty) problems.push({ code: 'SHORT', message: '库存不足：' + l.sku + ' 可用 ' + avail + '，需要 ' + l.qty });
+    });
+
+    if (problems.length) throw fail('PICK_BLOCKED', problems[0].message, problems);
+
+    var at = (opts && opts.at) || new Date().toISOString();
+    var docId = this.nextId('PJ');
+    var doc = {
+      id: docId, type: 'PICK', status: '待拣货', refs: ids.slice(),
+      lines: lines, at: at, by: (opts && opts.by) || 'admin', outDocId: ''
+    };
+    this.state.docs.push(doc);
+    orders.forEach(function (o) { o.pickId = docId; });
+    return doc;
+  };
+
+  /** 拣货：按行登记已拣数量，全部拣完转「待复核」 */
+  Store.prototype.pickLine = function (docId, sku, wh, qty) {
+    var doc = this.doc(docId);
+    if (!doc || doc.type !== 'PICK') throw fail('NO_DOC', '拣货单不存在');
+    if (doc.status === '已完成') throw fail('PICK_DONE', '拣货单已出库');
+    var line = null;
+    doc.lines.forEach(function (l) { if (l.sku === sku && l.wh === wh) line = l; });
+    if (!line) throw fail('NO_LINE', '拣货行不存在');
+
+    var n = qty == null ? (line.qty - line.picked) : Number(qty);
+    if (!(n > 0)) return line;
+    if (line.picked + n > line.qty) throw fail('OVER_PICK', '拣货数量超过应拣');
+
+    line.picked += n;
+    doc.status = doc.lines.every(function (l) { return l.picked >= l.qty; }) ? '待复核' : '待拣货';
+    return line;
+  };
+
+  /** 复核出库：校验拣货完成 → 生成出库单并扣库存 */
+  Store.prototype.confirmPick = function (docId, opts) {
+    var doc = this.doc(docId);
+    if (!doc || doc.type !== 'PICK') throw fail('NO_DOC', '拣货单不存在');
+    if (doc.status === '已完成') throw fail('PICK_DONE', '该拣货单已出库');
+    var open = doc.lines.filter(function (l) { return l.picked < l.qty; });
+    if (open.length) throw fail('UNPICKED', '还有 ' + open.length + ' 个 SKU 未拣完，不能出库');
+
+    var res = this.ship(doc.refs, opts);
+    doc.status = '已完成';
+    doc.outDocId = res.doc.id;
+    return { pick: doc, out: res.doc, orders: res.orders };
+  };
+
   /* ---------------- 审单规则 ---------------- */
 
   var DEFAULT_RULES = [
