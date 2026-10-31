@@ -41,7 +41,8 @@
       orders: [],
       stock: [],
       movements: [],
-      docs: []
+      docs: [],
+      blacklist: ['李墨', '测试账号']
     };
   }
 
@@ -368,6 +369,70 @@
     };
     this.state.docs.push(doc);
     return doc;
+  };
+
+  /* ---------------- 审单规则 ---------------- */
+
+  var DEFAULT_RULES = [
+    {
+      code: 'BLACKLIST', text: '买家黑名单',
+      check: function (o, st) {
+        var list = (st && st.blacklist) || [];
+        return list.indexOf(o.buyer) > -1 ? '买家「' + o.buyer + '」在黑名单中，需人工核实' : null;
+      }
+    },
+    {
+      code: 'ADDRESS', text: '收货地址不完整',
+      check: function (o) {
+        var a = o.addr || '';
+        if (!a) return '缺少收货地址';
+        if (a.indexOf('省') === -1 && a.indexOf('市') === -1) return '地址缺少省 / 市信息：' + a;
+        return null;
+      }
+    },
+    {
+      code: 'AMOUNT', text: '大额订单需复核',
+      check: function (o, st, opts) {
+        var limit = (opts && opts.amountLimit) || 5000;
+        return o.amount > limit ? '金额 ' + o.amount + ' 超过 ' + limit + '，需人工复核' : null;
+      }
+    },
+    {
+      code: 'DUPLICATE', text: '疑似重复下单',
+      check: function (o, st) {
+        var dup = st.orders.filter(function (x) {
+          return x.id !== o.id && x.buyer === o.buyer && x.addr === o.addr;
+        });
+        return dup.length ? '同一买家同地址已有 ' + dup.length + ' 笔订单（' + dup[0].id + '）' : null;
+      }
+    }
+  ];
+
+  Store.DEFAULT_RULES = DEFAULT_RULES;
+
+  /** 审单：返回通过与否 + 命中的规则，不修改任何状态 */
+  Store.prototype.review = function (id, opts) {
+    var o = this.order(id);
+    if (!o) return { ok: false, hits: [{ code: 'NOT_FOUND', title: '订单不存在', message: '订单 ' + id + ' 不存在' }] };
+    var hits = [];
+    var st = this.state;
+    var rules = this.rules || DEFAULT_RULES;
+    rules.forEach(function (rule) {
+      var msg = rule.check(o, st, opts || {});
+      if (msg) hits.push({ code: rule.code, title: rule.text, message: msg });
+    });
+    return { ok: hits.length === 0, hits: hits };
+  };
+
+  Store.prototype.reviewAll = function (ids, opts) {
+    var self = this;
+    var pass = [], blocked = [];
+    ids.forEach(function (id) {
+      var r = self.review(id, opts);
+      if (r.ok) pass.push(id);
+      else blocked.push({ id: id, hits: r.hits });
+    });
+    return { pass: pass, blocked: blocked };
   };
 
   /* ---------------- 一致性自检（给测试和运维用） ---------------- */
