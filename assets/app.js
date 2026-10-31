@@ -130,8 +130,59 @@
     return s.slice(0, 3) + '****' + s.slice(7);
   }
 
-  var LOGIN_LOGS = [
-    { t: '今天 09:12', dev: 'Windows · Chrome 141', ip: '10.8.2.10', loc: '杭州', cur: true },
+  /* ---------------- 角色与权限 ---------------- */
+  var ROLES = {
+    admin: {
+      label: '超级管理员', desc: '全部菜单 · 全部数据 · 成本可见',
+      menus: '*', shops: '*', whs: '*',
+      perms: { 'order.review': true, 'order.ship': true, 'stock.adjust': true, 'cost.view': true, 'finance.entry': true }
+    },
+    ops: {
+      label: '运营主管', desc: '订单 / 商品 / 库存 / 分销 · 成本价隐藏',
+      menus: ['dashboard', 'orders', 'aftersale', 'products', 'inventory', 'purchase', 'suppliers', 'logistics', 'shops', 'distribution', 'finance', 'profile'],
+      shops: '*', whs: '*',
+      perms: { 'order.review': true, 'order.ship': true, 'stock.adjust': true, 'cost.view': false, 'finance.entry': false }
+    },
+    cs: {
+      label: '客服专员', desc: '订单查看 · 售后处理 · 仅本店铺数据',
+      menus: ['dashboard', 'orders', 'aftersale', 'profile'],
+      shops: ['旗舰店'], whs: '*',
+      perms: { 'order.review': false, 'order.ship': false, 'stock.adjust': false, 'cost.view': false, 'finance.entry': false }
+    },
+    wh: {
+      label: '仓储管理员', desc: '订单发货 / 拣货 / 库存 · 仅本仓数据',
+      menus: ['dashboard', 'orders', 'inventory', 'logistics', 'purchase', 'profile'],
+      shops: '*', whs: ['杭州主仓'],
+      perms: { 'order.review': false, 'order.ship': true, 'stock.adjust': true, 'cost.view': false, 'finance.entry': false }
+    }
+  };
+  var ROLE_KEY = 'jy_erp_role_v1';
+
+  function currentRoleCode() {
+    var code = 'admin';
+    try { code = localStorage.getItem(ROLE_KEY) || 'admin'; } catch (e) { /* ignore */ }
+    return ROLES[code] ? code : 'admin';
+  }
+  function role() { return ROLES[currentRoleCode()]; }
+  function can(perm) { return role().perms[perm] === true; }
+  function menuAllowed(route) {
+    var m = role().menus;
+    if (m === '*' || route === 'profile') return true;
+    return m.indexOf(route) > -1;
+  }
+  function shopAllowed(shop) {
+    var s = role().shops;
+    return s === '*' || s.indexOf(shop) > -1;
+  }
+  function whAllowed(wh) {
+    var w = role().whs;
+    return w === '*' || w.indexOf(wh) > -1;
+  }
+  function scopedInventory() {
+    return INVENTORY.filter(function (r) { return whAllowed(r.wh); });
+  }
+
+  var LOGIN_LOGS = [    { t: '今天 09:12', dev: 'Windows · Chrome 141', ip: '10.8.2.10', loc: '杭州', cur: true },
     { t: '昨天 20:31', dev: 'macOS · Safari 18', ip: '10.8.2.10', loc: '杭州', cur: false },
     { t: '10-30 09:05', dev: 'iOS · 飞书 App', ip: '117.136.12.8', loc: '杭州', cur: false },
     { t: '10-28 18:44', dev: 'Windows · Edge 141', ip: '10.8.3.22', loc: '上海', cur: false },
@@ -493,8 +544,10 @@
   /* ---------- 框架 ---------- */
   function navHTML() {
     return MENU.map(function (g) {
+      var items = g.items.filter(function (it) { return menuAllowed(it.key); });
+      if (!items.length) return '';
       return '<div class="nav-group"><div class="nav-group-t">' + g.group + '</div>' +
-        g.items.map(function (it) {
+        items.map(function (it) {
           return '<a class="nav-item' + (ui.route === it.key ? ' active' : '') + '" href="#/' + it.key +
             '" data-action="nav" data-route="' + it.key + '" title="' + it.label + '">' +
             '<span class="ni-ico">' + icon(it.ico, 18) + '</span>' +
@@ -547,13 +600,22 @@
           '<div class="user' + (ui.userOpen ? ' open' : '') + '" id="user-wrap">' +
             '<button class="user-btn" data-action="toggle-user">' +
               '<span class="avatar">' + esc((PROFILE.name || '管').slice(0, 1)) + '</span>' +
-              '<span class="user-meta"><b>' + esc(PROFILE.name || '管理员') + '</b><span>' + esc(PROFILE.role) + '</span></span>' +
+              '<span class="user-meta"><b>' + esc(PROFILE.name || '管理员') + '</b><span>' + esc(role().label) + '</span></span>' +
               '<span class="chev">' + icon('chevD', 15) + '</span>' +
             '</button>' +
             '<div class="menu">' +
               '<div class="menu-head"><b>' + esc(PROFILE.account) + '</b><span>上次登录：今天 09:12</span></div>' +
               '<button class="menu-item" data-action="nav" data-route="profile">' + icon('user', 15) + '个人中心</button>' +
               '<button class="menu-item" data-action="nav" data-route="settings">' + icon('gear', 15) + '系统设置</button>' +
+              '<div class="menu-line"></div>' +
+              '<div class="menu-head" style="padding:6px 10px 4px"><span>演示角色 · 切换看权限差异</span></div>' +
+              Object.keys(ROLES).map(function (code) {
+                var on = currentRoleCode() === code;
+                return '<button class="menu-item" data-action="switch-role" data-role="' + code + '"' +
+                  (on ? ' style="color:var(--primary);font-weight:600"' : '') + '>' +
+                  (on ? icon('check', 14) : '<span style="width:14px;display:inline-block"></span>') +
+                  ROLES[code].label + '</button>';
+              }).join('') +
               '<div class="menu-line"></div>' +
               '<button class="menu-item danger" data-action="logout">' + icon('logout', 15) + '退出登录</button>' +
             '</div>' +
@@ -680,6 +742,7 @@
   function filteredOrders() {
     var kw = ui.kw.trim().toLowerCase();
     return ORDERS.filter(function (o) {
+      if (!shopAllowed(o.shop)) return false;
       if (ui.status !== '全部' && o.status !== ui.status) return false;
       if (ui.plat !== '全部' && o.plat !== ui.plat) return false;
       if (kw) {
@@ -738,9 +801,9 @@
         '<button class="btn btn-ghost xs" data-action="clear-sel">取消选择</button>' +
         '<div class="spacer"></div>' +
         '<button class="btn btn-ghost xs" data-action="export-sel">' + icon('download', 14) + '导出所选</button>' +
-        '<button class="btn btn-ghost xs" data-action="batch-review">' + icon('check', 14) + '审单</button>' +
-        '<button class="btn btn-ghost xs" data-action="batch-pick">' + icon('box', 14) + '打单拣货</button>' +
-        '<button class="btn btn-primary xs" data-action="batch-ship">' + icon('truck', 14) + '批量发货</button></div>'
+        (can('order.review') ? '<button class="btn btn-ghost xs" data-action="batch-review">' + icon('check', 14) + '审单</button>' : '') +
+        (can('order.ship') ? '<button class="btn btn-ghost xs" data-action="batch-pick">' + icon('box', 14) + '打单拣货</button>' : '') +
+        (can('order.ship') ? '<button class="btn btn-primary xs" data-action="batch-ship">' + icon('truck', 14) + '批量发货</button>' : '') + '</div>'
       : '';
 
     return selBar + '<div class="tb-wrap"><table class="tb">' +
@@ -1042,6 +1105,7 @@
   function rebuildFinance() {
     if (!store) return;
     var rows = store.settlement(refundsByShop());
+    rows = rows.filter(function (s) { return shopAllowed(s.shop); });
     rows.sort(function (a, b) { return b.net - a.net; });
     FINANCE.length = 0;
     rows.forEach(function (s) {
@@ -1345,14 +1409,14 @@
     desc: '多仓库存实时同步，可用 / 锁定 / 在途分账管理，每一次变动都有流水可查',
     actions: [
       { label: '库存流水', ico: 'doc', act: 'inv-flow' },
-      { label: '盘点', ico: 'check', act: 'inv-check' },
-      { label: '新建调拨', ico: 'truck', act: 'inv-transfer', primary: true }
+      { label: '盘点', ico: 'check', act: 'inv-check', perm: 'stock.adjust' },
+      { label: '新建调拨', ico: 'truck', act: 'inv-transfer', perm: 'stock.adjust', primary: true }
     ],
     stats: [
-      { label: '库存总量', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.avail; }, 0)); }, unit: '件', ico: 'layers', color: '#3568f0' },
-      { label: '锁定库存', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.lock; }, 0)); }, unit: '件', ico: 'lock', color: '#7a5af8' },
-      { label: '在途库存', value: function () { return num(INVENTORY.reduce(function (s, r) { return s + r.transit; }, 0)); }, unit: '件', ico: 'truck', color: '#f79009' },
-      { label: '预警 / 断货 SKU', value: function () { return String(INVENTORY.filter(function (r) { return r.status !== '正常'; }).length); }, unit: '个', ico: 'alert', color: '#f04438' }
+      { label: '库存总量', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.avail; }, 0)); }, unit: '件', ico: 'layers', color: '#3568f0' },
+      { label: '锁定库存', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.lock; }, 0)); }, unit: '件', ico: 'lock', color: '#7a5af8' },
+      { label: '在途库存', value: function () { return num(scopedInventory().reduce(function (s, r) { return s + r.transit; }, 0)); }, unit: '件', ico: 'truck', color: '#f79009' },
+      { label: '预警 / 断货 SKU', value: function () { return String(scopedInventory().filter(function (r) { return r.status !== '正常'; }).length); }, unit: '个', ico: 'alert', color: '#f04438' }
     ],
     filters: [
       { key: 'kw', type: 'search', ph: 'SKU / 商品名称' },
@@ -1547,7 +1611,7 @@
     key: 'finance', title: '对账中心', ico: 'wallet',
     desc: '平台账单与系统订单自动比对，差异项逐笔定位，结算与利润一目了然',
     actions: [
-      { label: '录入账单', ico: 'download', act: 'fin-import' },
+      { label: '录入账单', ico: 'download', act: 'fin-import', perm: 'finance.entry' },
       { label: '利润报表', ico: 'chart', act: 'fin-report' },
       { label: '开始对账', ico: 'refresh', act: 'fin-reconcile', primary: true }
     ],
@@ -1581,6 +1645,11 @@
   /* ---------- 通用列表引擎 ---------- */
   var FILTERS = {};
 
+  function rowsOf(cfg) {
+    if (cfg.key === 'inventory') return scopedInventory();
+    return cfg.rows;
+  }
+
   function fstate(key, filters) {
     if (!FILTERS[key]) {
       var st = { kw: '', page: 1, sel: {} };
@@ -1611,7 +1680,7 @@
         '<div class="stat-txt"><span>' + s.label + '</span><b>' + val + (s.unit ? '<small>' + s.unit + '</small>' : '') + '</b></div></div>';
     }).join('');
 
-    var actionsHTML = (cfg.actions || []).map(function (a) {
+    var actionsHTML = (cfg.actions || []).filter(function (a) { return !a.perm || can(a.perm); }).map(function (a) {
       return '<button class="btn ' + (a.primary ? 'btn-primary' : 'btn-ghost') + '" data-action="' + a.act + '"' +
         (a.msg ? ' data-msg="' + esc(a.msg) + '"' : '') + '>' + icon(a.ico, 15) + a.label + '</button>';
     }).join('');
@@ -1641,7 +1710,7 @@
 
   function modListHTML(cfg) {
     var st = fstate(cfg.key, cfg.filters);
-    var rows = filterRows(cfg.rows, st, cfg.filters);
+    var rows = filterRows(rowsOf(cfg), st, cfg.filters);
     var size = cfg.pageSize || 8;
     var pages = Math.max(1, Math.ceil(rows.length / size));
     if (st.page > pages) st.page = pages;
@@ -1889,8 +1958,8 @@
         '</div>' +
         '<div class="dw-foot">' +
           '<button class="btn btn-ghost" data-action="waybill-print">' + icon('print', 15) + '打印面单</button>' +
-          '<button class="btn btn-ghost" data-action="order-audit" data-id="' + o.id + '">审核</button>' +
-          '<button class="btn btn-primary" data-action="order-ship" data-id="' + o.id + '">发货</button>' +
+          (can('order.review') ? '<button class="btn btn-ghost" data-action="order-audit" data-id="' + o.id + '">审核</button>' : '') +
+          (can('order.ship') ? '<button class="btn btn-primary" data-action="order-ship" data-id="' + o.id + '">发货</button>' : '') +
         '</div>' +
       '</aside>';
   }
@@ -2000,7 +2069,7 @@
       return '<tr><td><div class="cell-main" style="font-weight:500">' + s.spec + '</div>' +
         '<div class="cell-sub mono">' + s.code + '</div></td>' +
         '<td class="t-right num">' + money(s.price) + '</td>' +
-        '<td class="t-right num" style="color:var(--muted)">' + money(s.cost) + '</td>' +
+        (can('cost.view') ? '<td class="t-right num" style="color:var(--muted)">' + money(s.cost) + '</td>' : '') +
         '<td class="t-right num' + (s.stock === 0 ? '" style="color:#d92d20' : '') + '">' + num(s.stock) + '</td></tr>';
     }).join('');
 
@@ -2037,7 +2106,7 @@
           '</div>' +
           '<div class="sec"><div class="sec-t">SKU 明细（' + skus.length + '）</div>' +
             '<table class="tb" style="border:1px solid var(--line);border-radius:9px;overflow:hidden">' +
-              '<thead><tr><th>规格 / 编码</th><th class="t-right">售价</th><th class="t-right">成本</th><th class="t-right">库存</th></tr></thead>' +
+              '<thead><tr><th>规格 / 编码</th><th class="t-right">售价</th>' + (can('cost.view') ? '<th class="t-right">成本</th>' : '') + '<th class="t-right">库存</th></tr></thead>' +
               '<tbody>' + skuRows + '</tbody></table>' +
           '</div>' +
           '<div class="sec"><div class="sec-t">平台映射（' + p.map + '）</div>' +
@@ -2136,7 +2205,7 @@
     var cfg = MODULES[ui.route];
     if (!cfg) { toast('当前页面没有可导出的数据', 'err'); return; }
     var st = fstate(cfg.key, cfg.filters);
-    exportRows(cfg.title + '_' + stamp() + '.csv', filterRows(cfg.rows, st, cfg.filters));
+    exportRows(cfg.title + '_' + stamp() + '.csv', filterRows(rowsOf(cfg), st, cfg.filters));
   }
 
   /* ---------- 同步 ---------- */
@@ -3754,6 +3823,20 @@
         toast(e.message, 'err');
       }
     },
+    'switch-role': function (el) {
+      var code = el.getAttribute('data-role');
+      if (!ROLES[code]) return;
+      try { localStorage.setItem(ROLE_KEY, code); } catch (e) { /* ignore */ }
+      ui.sel = {};
+      var uw = $('#user-wrap');
+      if (uw) uw.classList.remove('open');
+      if (!menuAllowed(ui.route)) {
+        ui.route = 'dashboard';
+        if (location.hash !== '#/dashboard') location.hash = '#/dashboard';
+      }
+      render();
+      toast('已切换到「' + ROLES[code].label + '」：' + ROLES[code].desc);
+    },
     'member-new': function () { memberNewModal(); },
     'reset-demo': function () {
       openConfirmModal({
@@ -3880,6 +3963,10 @@
 
   function go(route) {
     if (!ROUTE_TITLE[route]) route = 'dashboard';
+    if (!menuAllowed(route)) {
+      toast('当前角色（' + role().label + '）无权访问该页面', 'err');
+      return;
+    }
     closeDrawer();
     ui.route = route;
     ui.page = 1;
@@ -4004,7 +4091,7 @@
         var cfgm = MODULES[mall];
         var stm = fstate(mall, cfgm.filters);
         var size = cfgm.pageSize || 8;
-        var rr = filterRows(cfgm.rows, stm, cfgm.filters);
+        var rr = filterRows(rowsOf(cfgm), stm, cfgm.filters);
         rr.slice((stm.page - 1) * size, (stm.page - 1) * size + size).forEach(function (r) {
           stm.sel[rowKey(r)] = t.checked;
         });
@@ -4180,7 +4267,7 @@
         if (!cfgm) break;
         var stm = fstate(mkm, cfgm.filters);
         var target4 = Number(target.getAttribute('data-page'));
-        var totalRow = filterRows(cfgm.rows, stm, cfgm.filters).length;
+        var totalRow = filterRows(rowsOf(cfgm), stm, cfgm.filters).length;
         var totalPage = Math.max(1, Math.ceil(totalRow / (cfgm.pageSize || 8)));
         if (target4 < 1 || target4 > totalPage) return;
         stm.page = target4;
@@ -4281,6 +4368,7 @@
     var r = (location.hash || '').replace(/^#\/?/, '') || 'dashboard';
     if (r === ui.route) return;
     if (!ROUTE_TITLE[r]) r = 'dashboard';
+    if (!menuAllowed(r)) r = 'dashboard';
     ui.route = r;
     ui.page = 1;
     closeDrawer();
