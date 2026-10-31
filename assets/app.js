@@ -909,6 +909,83 @@
     { waybill: 'SF7800164', order: 'SO202610270021', express: '顺丰速运', receiver: '叶南乔', city: '南京 · 鼓楼区', track: '【南京鼓楼】快件退回中，原因：地址不详', status: '退回', time: '10-30 11:02', abnormal: true }
   ];
   indexSearch(LOGISTICS, ['waybill', 'order', 'express', 'receiver', 'city', 'track']);
+  LOGISTICS.forEach(function (r) { r.id = r.waybill; });
+
+  /* 物流轨迹：每个节点 = 时间 + 状态 + 具体动作 + 发生地 */
+  var TRACK_FLOW = {
+    '已签收': ['已签收', '派送中', '到达派送点', '运输中', '已揽收'],
+    '派送中': ['派送中', '到达派送点', '运输中', '已揽收'],
+    '运输中': ['运输中', '已揽收'],
+    '异常': ['异常', '运输中', '已揽收'],
+    '退回': ['退回中', '异常', '运输中', '已揽收']
+  };
+
+  function trackEvents(row) {
+    var flow = TRACK_FLOW[row.status] || ['已揽收'];
+    var city = String(row.city).split(' · ')[0];
+    var district = String(row.city).split(' · ')[1] || '';
+    var base = new Date('2026-10-31T14:00:00+08:00').getTime();
+    var texts = {
+      '已揽收': row.express + ' 已揽收，揽收员 王师傅',
+      '运输中': '快件已从【' + city + '转运中心】发出，下一站 ' + (district || '目的地') + '营业点',
+      '到达派送点': '快件已到达【' + city + (district ? district : '') + '营业点】',
+      '派送中': '快递员 李师傅（138****2211）正在派送',
+      '已签收': row.track,
+      '异常': row.track,
+      '退回中': row.track
+    };
+    return flow.map(function (st, i) {
+      var d = new Date(base - i * 7 * 3600 * 1000);
+      return {
+        status: st,
+        text: texts[st] || st,
+        at: pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()),
+        city: city + (district ? ' · ' + district : '')
+      };
+    });
+  }
+
+  function waybillDrawer(id) {
+    var r = LOGISTICS.filter(function (x) { return x.waybill === id; })[0];
+    if (!r) return;
+    var events = trackEvents(r);
+    var rows = events.map(function (e, i) {
+      var isBad = e.status === '异常' || e.status === '退回中';
+      return '<div class="tl-item' + (i === 0 ? ' done' : '') + '">' +
+        '<b style="' + (isBad ? 'color:#b42318' : '') + '">' + e.status + '</b>' +
+        '<div style="color:var(--text-2);font-size:12.5px;margin-top:2px">' + esc(e.text) + '</div>' +
+        '<span>' + e.at + ' · ' + esc(e.city) + '</span></div>';
+    }).join('');
+
+    var ord = ORDERS.filter(function (o) { return o.id === r.order; })[0];
+
+    showDrawer('<div class="overlay" data-action="close-drawer"></div>' +
+      '<aside class="drawer" role="dialog" aria-modal="true" aria-label="物流轨迹">' +
+        '<div class="dw-head"><div><h3><span class="mono" style="font-size:14px">' + r.waybill + '</span>' + tag(r.status, LG_COLOR[r.status]) + '</h3>' +
+          '<div class="sub">' + r.express + ' · 关联订单 ' + r.order + '</div></div>' +
+          '<button class="icon-btn" data-action="close-drawer" aria-label="关闭">' + icon('close', 18) + '</button></div>' +
+        '<div class="dw-body">' +
+          '<div class="sec"><div class="sec-t">运单信息</div>' +
+            '<dl class="kv">' +
+              '<dt>快递公司</dt><dd>' + r.express + '</dd>' +
+              '<dt>运单号</dt><dd class="mono">' + r.waybill + '</dd>' +
+              '<dt>收件人</dt><dd>' + r.receiver + ' · ' + esc(r.city) + '</dd>' +
+              '<dt>关联订单</dt><dd class="mono">' + r.order + '</dd>' +
+              '<dt>最近更新</dt><dd>' + r.time + '</dd>' +
+            '</dl>' +
+          '</div>' +
+          '<div class="sec"><div class="sec-t">物流轨迹（' + events.length + ' 个节点）</div>' +
+            '<div class="timeline">' + rows + '</div>' +
+            '<div class="hint" style="margin-top:10px;font-size:11.5px;color:var(--muted)">轨迹由快递公司接口回传，异常件会自动进入预警列表</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="dw-foot">' +
+          '<button class="btn btn-ghost" data-action="copy-waybill" data-no="' + r.waybill + '">复制运单号</button>' +
+          (ord ? '<button class="btn btn-primary" data-action="waybill-order" data-id="' + r.order + '">查看订单</button>'
+               : '<button class="btn btn-ghost" data-action="close-drawer">关闭</button>') +
+        '</div>' +
+      '</aside>');
+  }
 
   /* ---------- 店铺 ---------- */
   var SHOPS = [
@@ -1319,9 +1396,9 @@
       { label: '打印面单', ico: 'print', act: 'waybill-print', primary: true }
     ],
     stats: [
-      { label: '在途运单', value: '386', unit: '单', ico: 'truck', color: '#3568f0' },
-      { label: '今日签收', value: '214', unit: '单', ico: 'check', color: '#12b76a' },
-      { label: '异常运单', value: '7', unit: '单', ico: 'alert', color: '#f04438' },
+      { label: '在途运单', value: function () { return String(LOGISTICS.filter(function (r) { return r.status === '运输中' || r.status === '派送中'; }).length); }, unit: '单', ico: 'truck', color: '#3568f0' },
+      { label: '已签收', value: function () { return String(LOGISTICS.filter(function (r) { return r.status === '已签收'; }).length); }, unit: '单', ico: 'check', color: '#12b76a' },
+      { label: '异常运单', value: function () { return String(LOGISTICS.filter(function (r) { return r.status === '异常' || r.status === '退回'; }).length); }, unit: '单', ico: 'alert', color: '#f04438' },
       { label: '平均时效', value: '2.4', unit: '天', ico: 'clock', color: '#7a5af8' }
     ],
     filters: [
@@ -1338,9 +1415,10 @@
       } },
       { title: '状态', cell: function (r) { return tag(r.status, LG_COLOR[r.status] || 'gray'); } },
       { title: '更新时间', cell: function (r) { return '<span class="cell-sub" style="margin:0">' + r.time + '</span>'; } },
-      { title: '操作', cls: 't-right', cell: function () { return '<button class="link" style="font-size:12.5px" data-action="info" data-msg="运单轨迹详情（演示）">轨迹</button>'; } }
+      { title: '操作', cls: 't-right', cell: function (r) { return '<button class="link" style="font-size:12.5px" data-action="waybill-detail" data-id="' + r.waybill + '">轨迹</button>'; } }
     ],
-    rows: LOGISTICS
+    rows: LOGISTICS,
+    drawer: true
   };
 
   MODULES.shops = {
@@ -3196,6 +3274,23 @@
       toast('物流预警设置已保存，启用 ' + on + ' 条规则');
     },
     'waybill-print': function () { waybillModal(); },
+    'waybill-detail': function (el) { waybillDrawer(el.getAttribute('data-id')); },
+    'copy-waybill': function (el) {
+      var no = el.getAttribute('data-no');
+      var done = function () { toast('运单号已复制：' + no); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(no).then(done).catch(function () { toast('复制失败，请手动选中', 'err'); });
+      } else {
+        toast('当前浏览器不支持自动复制', 'err');
+      }
+    },
+    'waybill-order': function (el) {
+      var id = el.getAttribute('data-id');
+      var ord = ORDERS.filter(function (o) { return o.id === id; })[0];
+      closeDrawer();
+      if (ord) { go('orders'); setTimeout(function () { openDrawer(id); }, 150); }
+      else { go('orders'); toast('该订单不在当前列表前 8 条中，已跳转订单页'); }
+    },
     'do-print': function () { doPrint(); },
     'shop-auth': function () { shopAuthModal(); },
     'dist-invite': function () { distInviteModal(); },
@@ -3720,6 +3815,7 @@
         if (mrow === 'aftersale') openAftersale(idrow);
         else if (mrow === 'products') openProduct(idrow);
         else if (mrow === 'inventory') invFlowDrawer(idrow);
+        else if (mrow === 'logistics') waybillDrawer(idrow);
         break;
       }
       case 'modal-submit': {
