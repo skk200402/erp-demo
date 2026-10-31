@@ -306,10 +306,10 @@
     ],
     select: { label: '批量操作', action: 'batch-product', icon: 'box' },
     stats: [
-      { label: '在售商品', value: '1,286', unit: '个', ico: 'box', color: '#3568f0' },
-      { label: '待上架', value: '12', unit: '个', ico: 'clock', color: '#f79009' },
-      { label: '库存预警', value: '46', unit: '个', ico: 'alert', color: '#f04438' },
-      { label: '平台映射异常', value: '3', unit: '个', ico: 'refresh', color: '#7a5af8' }
+      { label: '在售商品', value: function () { return num(PRODUCTS.filter(function (p) { return p.status === '在售'; }).length); }, unit: '个', ico: 'box', color: '#3568f0' },
+      { label: '待上架', value: function () { return String(PRODUCTS.filter(function (p) { return p.status === '待上架'; }).length); }, unit: '个', ico: 'clock', color: '#f79009' },
+      { label: '库存预警', value: function () { return String(productsLowStock()); }, unit: '个', ico: 'alert', color: '#f04438' },
+      { label: '平台映射异常', value: function () { return String(PRODUCTS.filter(function (p) { return p.map !== '3/3'; }).length); }, unit: '个', ico: 'refresh', color: '#7a5af8' }
     ],
     filters: [
       { key: 'kw', type: 'search', ph: '商品名称 / 编码 / 品牌' },
@@ -323,10 +323,11 @@
           '<div class="cell-sub">' + r.code + ' · ' + r.brand + '</div></div></div>';
       } },
       { title: '类目', cell: function (r) { return '<span style="color:var(--text-2)">' + r.cat + '</span>'; } },
-      { title: '规格', cell: function (r) { return '<span class="num">' + r.specs.length + '</span> 个 SKU'; } },
+      { title: '规格', cell: function (r) { var n = stockOfProduct(r.code).rows.length || r.specs.length; return '<span class="num">' + n + '</span> 个 SKU'; } },
       { title: '价格区间', cls: 't-right', cell: function (r) { return r.priceMin === r.priceMax ? money(r.priceMin) : money(r.priceMin) + ' ~ ' + money(r.priceMax); } },
       { title: '总库存', cls: 't-right', cell: function (r) {
-        return '<span class="num" style="font-weight:600;color:' + (r.stock === 0 ? '#d92d20' : 'inherit') + '">' + num(r.stock) + '</span>';
+        var t = stockOfProduct(r.code).total;
+        return '<span class="num" style="font-weight:600;color:' + (t === 0 ? '#d92d20' : 'inherit') + '">' + num(t) + '</span>';
       } },
       { title: '30 天销量', cls: 't-right', cell: function (r) { return '<span class="num">' + num(r.sales) + '</span>'; } },
       { title: '平台映射', cell: function (r) {
