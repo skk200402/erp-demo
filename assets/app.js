@@ -134,6 +134,15 @@
   }
   window.todayOrdersOfShop = todayOrdersOfShop;
 
+  /* 商品销量：按订单明细实时汇总（30 天窗口，演示数据全量） */
+  function salesOfProduct(name) {
+    return ORDERS.reduce(function (sum, o) {
+      return sum + o.items.filter(function (it) { return it.name === name; })
+        .reduce(function (s, it) { return s + it.qty; }, 0);
+    }, 0);
+  }
+  window.salesOfProduct = salesOfProduct;
+
   /* 操作日志：真实操作写入，持久化 */
   var LOG_KEY = 'jy_erp_logs_v1';
   function saveLogs() {
