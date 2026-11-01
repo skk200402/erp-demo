@@ -195,12 +195,57 @@ test('损坏数据不会崩', () => {
   assert.strictEqual(e.load('{"version":99}'), false);
 });
 
-const total = passed + failures.length;
-console.log('\n' + '-'.repeat(48));
-console.log(`通过 ${passed}/${total}`);
-if (failures.length) {
-  console.log('失败：');
-  failures.forEach(f => console.log(' - ' + f.name));
-  process.exit(1);
+
+/* ---------- 异步传输（真实 HTTP 路径） ---------- */
+const asyncTests = [];
+function testAsync(name, fn) { asyncTests.push({ name, fn }); }
+
+testAsync('异步传输成功：drainAsync 走 Promise 并标记完成', async () => {
+  const e = new Engine({ transport: async () => ({ ok: true, platformId: 'MOCK-1' }) });
+  e.enqueue({ type: 'PUSH_TRACKING', ref: 'SO1' });
+  const r = await e.drainAsync();
+  assert.strictEqual(r.done, 1);
+  assert.strictEqual(e.jobs[0].status, 'done');
+  assert.strictEqual(e.jobs[0].attempts, 1);
+});
+
+testAsync('异步传输 5xx：进入退避重试', async () => {
+  const e = new Engine({ transport: async () => ({ ok: false, error: 'HTTP 500', retryable: true }) });
+  e.enqueue({ type: 'PUSH_TRACKING', ref: 'SO2' });
+  await e.drainAsync();
+  assert.strictEqual(e.jobs[0].status, 'pending');
+  assert.strictEqual(e.jobs[0].attempts, 1);
+  assert.ok(e.jobs[0].nextAt > 0);
+});
+
+testAsync('异步传输抛异常：按网络错误重试', async () => {
+  const e = new Engine({ transport: async () => { throw new Error('ECONNRESET'); } });
+  e.enqueue({ type: 'PUSH_TRACKING', ref: 'SO3' });
+  await e.drainAsync();
+  assert.strictEqual(e.jobs[0].status, 'pending');
+  assert.ok(/ECONNRESET/.test(e.jobs[0].lastError));
+});
+
+function report() {
+  const total = passed + failures.length;
+  console.log('\n' + '-'.repeat(48));
+  console.log(`通过 ${passed}/${total}`);
+  if (failures.length) {
+    console.log('失败：');
+    failures.forEach(f => console.log(' - ' + f.name));
+    process.exit(1);
+  }
+  console.log('ALL GREEN');
 }
-console.log('ALL GREEN');
+
+if (asyncTests.length) {
+  (async () => {
+    for (const t of asyncTests) {
+      try { await t.fn(); passed++; console.log('  ✓ ' + t.name); }
+      catch (e) { failures.push({ name: t.name, e }); console.log('  ✗ ' + t.name + '\n      ' + e.message); }
+    }
+    report();
+  })();
+} else {
+  report();
+}
