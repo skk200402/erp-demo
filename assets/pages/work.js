@@ -55,6 +55,18 @@
           '<button class="btn btn-primary" data-action="sync-drain">' + icon('refresh', 15) + '立即同步</button>' +
         '</div>' +
       '</div>' +
+      '<div class="conn-bar">' +
+        '<span class="conn-tag">传输</span>' +
+        '<button class="seg' + (CONN.mode === 'demo' ? ' on' : '') + '" data-action="conn-mode" data-mode="demo">演示</button>' +
+        '<button class="seg' + (CONN.mode === 'http' ? ' on' : '') + '" data-action="conn-mode" data-mode="http">真实 HTTP</button>' +
+        '<input id="conn-url" class="conn-in" value="' + esc(CONN.url || '') + '" placeholder="接口地址（POST）">' +
+        '<input id="conn-token" class="conn-in" style="max-width:150px" value="' + esc(CONN.token || '') + '" placeholder="密钥（可选）">' +
+        '<button class="btn btn-ghost" data-action="conn-save">保存</button>' +
+        '<button class="btn btn-ghost" data-action="conn-test">测试连接</button>' +
+      '</div>' +
+      '<div class="conn-hint">' + (CONN.mode === 'http'
+        ? '真实模式：点「立即同步」会向上述地址发送 POST 请求，按 HTTP 状态码决定重试'
+        : '演示模式：本地模拟返回 200 / 429 / 502 / 超时，不发出网络请求') + '</div>' +
       '<div class="stat-strip">' +
         '<div class="stat"><span class="stat-ico" style="background:#eef3ff;color:#3568f0">' + icon('clock', 17) + '</span><div class="stat-txt"><span>待发送</span><b>' + st.pending + '<small>个</small></b></div></div>' +
         '<div class="stat"><span class="stat-ico" style="background:#fff5e6;color:#f79009">' + icon('refresh', 17) + '</span><div class="stat-txt"><span>重试中</span><b>' + st.retrying + '<small>个</small></b></div></div>' +
