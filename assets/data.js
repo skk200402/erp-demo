@@ -53,22 +53,7 @@
   ];
 
   var RAW_ORDERS = [
-    ['SO202610310001', '淘宝天猫', '旗舰店', '林小满', '待发货', '今天 14:32', [['2026春季纯棉圆领T恤', '白色 / L', 2, 129], ['基础款帆布托特包', '米白 / 均码', 1, 89]], '尽快发货，客户催单'],
-    ['SO202610310002', '京东', '京东自营店', '周予安', '待审核', '今天 14:05', [['轻量跑步鞋 Aerolite', '灰 / 42', 1, 469]], ''],
-    ['SO202610310003', '抖音小店', '抖音旗舰店', '陈嘉树', '待发货', '今天 13:48', [['真丝方巾 · 云纹', '藏青 / 65cm', 2, 199]], '需要礼盒包装'],
-    ['SO202610300118', '拼多多', '拼多多店', '黄一诺', '已发货', '昨天 21:10', [['加厚保温杯 500ml', '哑黑 / 500ml', 1, 79]], ''],
-    ['SO202610310004', '淘宝天猫', '旗舰店', '苏亦然', '售后中', '今天 12:26', [['羊绒混纺针织开衫', '燕麦 / M', 1, 599]], '尺码不合适，申请退货'],
-    ['SO202610300117', '京东', '京东自营店', '许知野', '已完成', '昨天 19:33', [['家用香薰蜡烛礼盒', '3 支装', 1, 259]], ''],
-    ['SO202610310005', '快手小店', '快手店', '谭清和', '待发货', '今天 11:52', [['防晒冰袖（2 双装）', '黑色 / 均码', 3, 39.9]], ''],
-    ['SO202610310006', '抖音小店', '抖音旗舰店', '顾星野', '待审核', '今天 11:20', [['复古机能双肩包', '军绿 / 20L', 1, 329], ['户外速干帽', '卡其 / 均码', 1, 99]], '客户要求改地址'],
-    ['SO202610300116', '淘宝天猫', '旗舰店', '陆听白', '已取消', '昨天 18:02', [['羊毛围巾 · 格纹', '驼色 / 180cm', 1, 239]], '买家主动取消'],
-    ['SO202610310007', '拼多多', '拼多多店', '温以宁', '待发货', '今天 10:44', [['厨房硅胶铲套装', '6 件套', 2, 69]], ''],
-    ['SO202610300115', '京东', '京东自营店', '江晚棠', '已完成', '昨天 16:40', [['护眼台灯 Pro', '白色', 1, 399]], ''],
-    ['SO202610310008', '淘宝天猫', '旗舰店', '沈泽川', '已发货', '今天 09:38', [['亚麻宽松衬衫', '浅蓝 / XL', 1, 219], ['纯棉直筒长裤', '米白 / 32', 1, 259]], ''],
-    ['SO202610300114', '有赞', '小程序商城', '叶南乔', '待发货', '昨天 15:21', [['手冲咖啡礼盒', '中深烘 / 250g', 2, 168]], ''],
-    ['SO202610310009', '抖音小店', '抖音旗舰店', '白露微', '售后中', '今天 08:56', [['轻薄羽绒马甲', '黑色 / S', 1, 429]], '商品有瑕疵，申请换货'],
-    ['SO202610310010', '淘宝天猫', '旗舰店', '王砚舟', '待审核', '今天 15:02', [['轻量跑步鞋 Aerolite', '黑 / 42', 1, 469]], '地址只填到小区'],
-    ['SO202610310011', '京东', '京东自营店', '李墨', '待审核', '今天 15:18', [['真丝方巾 · 云纹', '藏青 / 65cm', 1, 199]], '']
+    ['SO202610310001', '淘宝天猫', '旗舰店', '林小满', '待发货', '今天 14:32', [['2026春季纯棉圆领T恤', '白色 / S', 2, 129]], '尽快发货，客户催单'],
   ];
 
   var ORDERS = RAW_ORDERS.map(function (r, idx) {
@@ -96,30 +81,13 @@
 
   /* ---------- 售后 ---------- */
   var AFTERSALES = [
-    { id: 'AS202610310031', order: 'SO202610310004', plat: '淘宝天猫', shop: '旗舰店', buyer: '苏亦然', type: '退货退款', amount: 599, reason: '尺码不合适', status: '待审核', time: '今天 12:32', deadline: '剩 1 天 4 小时' },
-    { id: 'AS202610310030', order: 'SO202610310009', plat: '抖音小店', shop: '抖音旗舰店', buyer: '白露微', type: '换货', amount: 429, reason: '商品有瑕疵', status: '待买家退货', time: '今天 09:12', deadline: '剩 2 天 6 小时' },
-    { id: 'AS202610300028', order: 'SO202610300116', plat: '淘宝天猫', shop: '旗舰店', buyer: '陆听白', type: '仅退款', amount: 239, reason: '未按约定时间发货', status: '退款中', time: '昨天 19:40', deadline: '剩 6 小时' },
-    { id: 'AS202610300027', order: 'SO202610300118', plat: '拼多多', shop: '拼多多店', buyer: '黄一诺', type: '补发', amount: 79, reason: '少件 / 漏发', status: '待收货', time: '昨天 16:20', deadline: '剩 3 天' },
-    { id: 'AS202610300026', order: 'SO202610300115', plat: '京东', shop: '京东自营店', buyer: '江晚棠', type: '退货退款', amount: 399, reason: '七天无理由', status: '已完成', time: '昨天 11:05', deadline: '—' },
-    { id: 'AS202610300025', order: 'SO202610300114', plat: '有赞', shop: '小程序商城', buyer: '叶南乔', type: '仅退款', amount: 336, reason: '拍错 / 多拍', status: '已完成', time: '昨天 10:18', deadline: '—' },
-    { id: 'AS202610290024', order: 'SO202610310008', plat: '淘宝天猫', shop: '旗舰店', buyer: '沈泽川', type: '退货退款', amount: 478, reason: '商品与描述不符', status: '待收货', time: '10-29 15:22', deadline: '剩 2 天' },
-    { id: 'AS202610290023', order: 'SO202610290092', plat: '抖音小店', shop: '抖音旗舰店', buyer: '陈嘉树', type: '仅退款', amount: 199, reason: '不想要了', status: '已关闭', time: '10-29 09:40', deadline: '—' },
-    { id: 'AS202610280022', order: 'SO202610280071', plat: '淘宝天猫', shop: '旗舰店', buyer: '林小满', type: '换货', amount: 129, reason: '尺码不合适', status: '已完成', time: '10-28 20:15', deadline: '—' }
+    { id: 'AS202610310031', order: 'SO202610310001', plat: '淘宝天猫', shop: '旗舰店', buyer: '林小满', type: '退货退款', amount: 258, reason: '尺码不合适', status: '待审核', time: '今天 12:32', deadline: '剩 1 天 4 小时' },
   ];
   indexSearch(AFTERSALES, ['id', 'order', 'plat', 'shop', 'buyer', 'reason']);
 
   /* ---------- 商品 ---------- */
   var PRODUCTS = [
     { code: 'P10086', name: '2026春季纯棉圆领T恤', cat: '服饰 / 上装', brand: '云织', specs: ['白色 / S', '白色 / M', '黑色 / L'], priceMin: 129, priceMax: 159, stock: 1268, sales: 386, map: '3/3', status: '在售', color: '#3568f0' },
-    { code: 'P10087', name: '轻量跑步鞋 Aerolite', cat: '鞋靴 / 运动鞋', brand: 'Aerolite', specs: ['灰 / 41', '灰 / 42', '蓝 / 43'], priceMin: 469, priceMax: 529, stock: 486, sales: 212, map: '3/3', status: '在售', color: '#12b76a' },
-    { code: 'P10088', name: '真丝方巾 · 云纹', cat: '配饰 / 丝巾', brand: '云织', specs: ['藏青 / 65cm', '米白 / 65cm'], priceMin: 199, priceMax: 259, stock: 320, sales: 158, map: '2/3', status: '在售', color: '#7a5af8' },
-    { code: 'P10089', name: '加厚保温杯 500ml', cat: '家居 / 水具', brand: '栖町', specs: ['哑黑 / 500ml', '奶白 / 500ml'], priceMin: 79, priceMax: 99, stock: 0, sales: 640, map: '3/3', status: '在售', color: '#0d9488' },
-    { code: 'P10090', name: '羊绒混纺针织开衫', cat: '服饰 / 针织', brand: '云织', specs: ['燕麦 / S', '燕麦 / M', '灰 / L'], priceMin: 599, priceMax: 699, stock: 92, sales: 74, map: '3/3', status: '在售', color: '#b45309' },
-    { code: 'P10091', name: '家用香薰蜡烛礼盒', cat: '家居 / 香氛', brand: '栖町', specs: ['3 支装', '5 支装'], priceMin: 259, priceMax: 399, stock: 512, sales: 96, map: '3/3', status: '在售', color: '#be185d' },
-    { code: 'P10092', name: '防晒冰袖（2 双装）', cat: '配饰 / 防晒', brand: 'Aerolite', specs: ['黑色 / 均码', '灰色 / 均码'], priceMin: 39.9, priceMax: 49.9, stock: 2340, sales: 1820, map: '2/3', status: '在售', color: '#0891b2' },
-    { code: 'P10093', name: '复古机能双肩包', cat: '箱包 / 双肩包', brand: 'OAKLAB', specs: ['军绿 / 20L', '黑色 / 20L'], priceMin: 329, priceMax: 379, stock: 168, sales: 120, map: '3/3', status: '在售', color: '#4d7c0f' },
-    { code: 'P10094', name: '羊绒围巾 · 格纹', cat: '配饰 / 围巾', brand: '云织', specs: ['驼色 / 180cm', '黑灰 / 180cm'], priceMin: 239, priceMax: 299, stock: 0, sales: 0, map: '1/3', status: '下架', color: '#78350f' },
-    { code: 'P10095', name: '护眼台灯 Pro', cat: '家居 / 灯具', brand: '栖町', specs: ['白色'], priceMin: 399, priceMax: 399, stock: 76, sales: 88, map: '3/3', status: '待上架', color: '#4338ca' }
   ];
   indexSearch(PRODUCTS, ['code', 'name', 'cat', 'brand']);
 
@@ -141,55 +109,25 @@
   /* ---------- 库存 ---------- */
   var INVENTORY = [
     { sku: 'P10086-01', name: '2026春季纯棉圆领T恤 白色 / S', wh: '杭州主仓', avail: 420, lock: 36, transit: 200, safety: 150, status: '正常', time: '10 分钟前' },
-    { sku: 'P10086-03', name: '2026春季纯棉圆领T恤 黑色 / L', wh: '杭州主仓', avail: 96, lock: 12, transit: 0, safety: 120, status: '预警', time: '10 分钟前' },
-    { sku: 'P10087-02', name: '轻量跑步鞋 Aerolite 灰 / 42', wh: '广州仓', avail: 268, lock: 24, transit: 120, safety: 100, status: '正常', time: '12 分钟前' },
-    { sku: 'P10088-01', name: '真丝方巾 · 云纹 藏青 / 65cm', wh: '杭州主仓', avail: 96, lock: 6, transit: 80, safety: 60, status: '正常', time: '12 分钟前' },
-    { sku: 'P10089-01', name: '加厚保温杯 500ml 哑黑 / 500ml', wh: '义乌仓', avail: 0, lock: 0, transit: 0, safety: 200, status: '断货', time: '25 分钟前' },
-    { sku: 'P10090-02', name: '羊绒混纺针织开衫 燕麦 / M', wh: '杭州主仓', avail: 48, lock: 9, transit: 30, safety: 80, status: '预警', time: '25 分钟前' },
-    { sku: 'P10091-01', name: '家用香薰蜡烛礼盒 3 支装', wh: '广州仓', avail: 286, lock: 18, transit: 0, safety: 100, status: '正常', time: '1 小时前' },
-    { sku: 'P10092-01', name: '防晒冰袖 黑色 / 均码', wh: '义乌仓', avail: 1240, lock: 86, transit: 400, safety: 300, status: '正常', time: '1 小时前' },
-    { sku: 'P10093-01', name: '复古机能双肩包 军绿 / 20L', wh: '广州仓', avail: 102, lock: 14, transit: 0, safety: 60, status: '正常', time: '2 小时前' },
-    { sku: 'P10095-01', name: '护眼台灯 Pro 白色', wh: '杭州主仓', avail: 76, lock: 4, transit: 0, safety: 40, status: '正常', time: '2 小时前' }
   ];
   indexSearch(INVENTORY, ['sku', 'name', 'wh']);
   INVENTORY.forEach(function (r) { r.id = r.sku + '@' + r.wh; });
 
   /* ---------- 采购 ---------- */
   var PURCHASES = [
-    { id: 'PO20261031016', supplier: '广州箱包制造有限公司', kinds: 3, qty: 600, amount: 39600, status: '待审核', time: '今天 10:20', eta: '预计 11-06' },
-    { id: 'PO20261031017', supplier: '杭州美棉纺织', kinds: 5, qty: 1200, amount: 52300, status: '待审核', time: '今天 09:05', eta: '预计 11-08' },
-    { id: 'PO20261030015', supplier: '深圳家居用品厂', kinds: 6, qty: 800, amount: 68200, status: '待到货', time: '昨天 17:32', eta: '预计 11-03' },
-    { id: 'PO20261030014', supplier: '苏州丝绸工坊', kinds: 4, qty: 320, amount: 42800, status: '待供应商确认', time: '昨天 14:10', eta: '预计 11-04' },
-    { id: 'PO20261029013', supplier: '宁波运动科技有限公司', kinds: 2, qty: 900, amount: 126000, status: '部分到货', time: '10-29 16:48', eta: '预计 11-02' },
-    { id: 'PO20261028012', supplier: '杭州美棉纺织', kinds: 3, qty: 1500, amount: 86400, status: '已入库', time: '10-28 11:22', eta: '已入库 10-30' },
-    { id: 'PO20261026009', supplier: '义乌小商品批发市场', kinds: 8, qty: 2400, amount: 18900, status: '已取消', time: '10-26 15:06', eta: '—' },
-    { id: 'PO20261025008', supplier: '宁波运动科技有限公司', kinds: 1, qty: 1000, amount: 96000, status: '已入库', time: '10-25 09:40', eta: '已入库 10-28' }
+    { id: 'PO20261031016', supplier: '杭州美棉纺织', kinds: 1, qty: 600, amount: 39600, status: '待审核', time: '今天 10:20', eta: '预计 11-06' },
   ];
   indexSearch(PURCHASES, ['id', 'supplier']);
 
   /* ---------- 供应商 ---------- */
   var SUPPLIERS = [
     { name: '杭州美棉纺织', code: 'SUP-0012', contact: '沈国栋', phone: '137****2210', cat: '棉纺面料 / 成衣', goods: 46, pay: '月结 30 天', ontime: 98, score: 4.8, status: '合作中' },
-    { name: '宁波运动科技有限公司', code: 'SUP-0026', contact: '应雪梅', phone: '138****7702', cat: '运动鞋服', goods: 28, pay: '月结 45 天', ontime: 95, score: 4.6, status: '合作中' },
-    { name: '苏州丝绸工坊', code: 'SUP-0038', contact: '濮院生', phone: '139****5518', cat: '真丝 / 羊毛制品', goods: 17, pay: '预付 30%', ontime: 92, score: 4.5, status: '合作中' },
-    { name: '深圳家居用品厂', code: 'SUP-0044', contact: '何嘉怡', phone: '136****3309', cat: '家居 / 香氛 / 灯具', goods: 63, pay: '月结 30 天', ontime: 88, score: 4.1, status: '合作中' },
-    { name: '广州箱包制造有限公司', code: 'SUP-0051', contact: '梁志勇', phone: '135****8876', cat: '箱包 / 皮具', goods: 22, pay: '月结 30 天', ontime: 96, score: 4.7, status: '合作中' },
-    { name: '义乌小商品批发市场', code: 'SUP-0067', contact: '陈美玲', phone: '133****1123', cat: '日用百货', goods: 104, pay: '现结', ontime: 74, score: 3.4, status: '观察中' },
-    { name: 'OAKLAB 设计工作室', code: 'SUP-0073', contact: '林亦然', phone: '132****6644', cat: '原创包袋设计', goods: 8, pay: '预付 50%', ontime: 90, score: 4.3, status: '暂停合作' }
   ];
   indexSearch(SUPPLIERS, ['name', 'code', 'contact', 'cat']);
 
   /* ---------- 物流 ---------- */
   var LOGISTICS = [
-    { waybill: 'SF7800137', order: 'SO202610300118', express: '顺丰速运', receiver: '黄一诺', city: '深圳 · 南山区', track: '【深圳南山营业点】快件已签收', status: '已签收', time: '今天 11:26', abnormal: false },
-    { waybill: 'ZT4451208', order: 'SO202610300117', express: '中通快递', receiver: '许知野', city: '北京 · 朝阳区', track: '【北京朝阳转运中心】已到达，准备派送', status: '派送中', time: '今天 13:02', abnormal: false },
-    { waybill: 'YT9902341', order: 'SO202610300116', express: '圆通速递', receiver: '陆听白', city: '杭州 · 余杭区', track: '【杭州余杭】收件人拒收，快件退回中', status: '异常', time: '今天 12:44', abnormal: true },
-    { waybill: 'JD0088221', order: 'SO202610310008', express: '京东物流', receiver: '沈泽川', city: '上海 · 浦东新区', track: '【上海浦东分拣中心】已发出，下一站 张江营业部', status: '运输中', time: '今天 14:10', abnormal: false },
-    { waybill: 'SF7800152', order: 'SO202610290045', express: '顺丰速运', receiver: '周予安', city: '广州 · 天河区', track: '【广州天河】快件已签收，签收人：本人', status: '已签收', time: '昨天 18:20', abnormal: false },
-    { waybill: 'ZT4451333', order: 'SO202610290046', express: '中通快递', receiver: '温以宁', city: '成都 · 武侯区', track: '【成都武侯】快递员派送中，预计今天送达', status: '派送中', time: '今天 09:36', abnormal: false },
-    { waybill: 'YT9902410', order: 'SO202610280033', express: '圆通速递', receiver: '顾星野', city: '武汉 · 洪山区', track: '【武汉转运中心】快件超时未更新，已触发预警', status: '异常', time: '昨天 22:15', abnormal: true },
-    { waybill: 'JD0088340', order: 'SO202610280034', express: '京东物流', receiver: '谭清和', city: '西安 · 雁塔区', track: '【西安雁塔】已签收，签收人：门卫代收', status: '已签收', time: '昨天 15:48', abnormal: false },
-    { waybill: 'SF7800164', order: 'SO202610270021', express: '顺丰速运', receiver: '叶南乔', city: '南京 · 鼓楼区', track: '【南京鼓楼】快件退回中，原因：地址不详', status: '退回', time: '10-30 11:02', abnormal: true }
+    { waybill: 'SF7800137', order: 'SO202610310001', express: '顺丰速运', receiver: '林小满', city: '杭州 · 余杭区', track: '【杭州余杭】快件已揽收', status: '运输中', time: '刚刚', abnormal: false },
   ];
   indexSearch(LOGISTICS, ['waybill', 'order', 'express', 'receiver', 'city', 'track']);
   LOGISTICS.forEach(function (r) { r.id = r.waybill; });
@@ -199,24 +137,12 @@
   /* ---------- 店铺 ---------- */
   var SHOPS = [
     { plat: '淘宝天猫', name: '鲸云旗舰店', sid: 'tb_88231001', auth: '已授权', sync: '2 分钟前', today: 486, goods: 386, expire: '2027-03-12' },
-    { plat: '京东', name: '京东自营店', sid: 'jd_55120933', auth: '已授权', sync: '3 分钟前', today: 312, goods: 254, expire: '2027-01-08' },
-    { plat: '抖音小店', name: '抖音旗舰店', sid: 'dy_77810244', auth: '已授权', sync: '1 分钟前', today: 268, goods: 312, expire: '2026-12-20' },
-    { plat: '拼多多', name: '拼多多店', sid: 'pdd_33900122', auth: '即将到期', sync: '5 分钟前', today: 154, goods: 198, expire: '2026-11-15' },
-    { plat: '快手小店', name: '快手店', sid: 'ks_11208843', auth: '已授权', sync: '8 分钟前', today: 42, goods: 96, expire: '2027-02-02' },
-    { plat: '有赞', name: '小程序商城', sid: 'yz_66021178', auth: '已授权', sync: '12 分钟前', today: 24, goods: 120, expire: '2027-05-19' }
   ];
   indexSearch(SHOPS, ['plat', 'name', 'sid']);
 
   /* ---------- 分销 ---------- */
   var DISTRIBUTORS = [
     { name: '杭州云仓商贸', code: 'DB-0031', level: '钻石', goods: 128, orders: 86, gmv: 42860, pending: 8200, status: '合作中' },
-    { name: '广州星链供应链', code: 'DB-0044', level: '金牌', goods: 96, orders: 64, gmv: 31920, pending: 6400, status: '合作中' },
-    { name: '成都西岭优选', code: 'DB-0058', level: '金牌', goods: 72, orders: 48, gmv: 22640, pending: 4200, status: '合作中' },
-    { name: '南京拾光百货', code: 'DB-0062', level: '银牌', goods: 54, orders: 32, gmv: 15880, pending: 2600, status: '合作中' },
-    { name: '武汉江畔生活', code: 'DB-0071', level: '银牌', goods: 40, orders: 24, gmv: 11420, pending: 1800, status: '合作中' },
-    { name: '西安长安集市', code: 'DB-0086', level: '普通', goods: 26, orders: 12, gmv: 5680, pending: 960, status: '合作中' },
-    { name: '厦门海隅贸易', code: 'DB-0092', level: '普通', goods: 18, orders: 6, gmv: 2380, pending: 420, status: '待激活' },
-    { name: '青岛屿见优选', code: 'DB-0104', level: '普通', goods: 12, orders: 0, gmv: 0, pending: 0, status: '已暂停' }
   ];
   indexSearch(DISTRIBUTORS, ['name', 'code', 'level']);
 
