@@ -748,3 +748,12 @@ input.cb{width:15px;height:15px;margin:0;accent-color:var(--primary);cursor:poin
 .shell.pda-mode .sidebar,.shell.pda-mode .topbar{display:none;}
 .shell.pda-mode .content{padding:0;max-width:none;}
 .pda-back{font-size:13px;font-weight:600;color:var(--primary);}
+
+/* 平台对接：连接配置条 */
+.conn-bar{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px 12px;margin-bottom:6px;flex-wrap:wrap;}
+.conn-tag{font-size:12px;color:var(--muted);margin-right:2px;}
+.conn-in{height:30px;border:1px solid #dfe5ef;border-radius:8px;padding:0 10px;font-size:12.5px;flex:1;min-width:180px;background:#fff;}
+.conn-in:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(53,104,240,.12);}
+.seg{height:30px;padding:0 12px;border-radius:8px;background:#f2f5fa;color:#5b6b82;font-size:12.5px;font-weight:500;}
+.seg.on{background:var(--primary);color:#fff;}
+.conn-hint{font-size:12px;color:var(--muted);margin:0 2px 12px;}
