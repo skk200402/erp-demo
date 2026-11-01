@@ -972,7 +972,7 @@
   /* ============================================================
      数据层：库存台账 + 订单状态机（assets/store.js）
      ============================================================ */
-  var STATE_KEY = 'jy_erp_state_v1';
+  var STATE_KEY = 'jy_erp_state_v2';
   var SEED_AT = '2026-10-01T00:00:00.000Z';
   var store = null;
   var storeLoaded = false;
