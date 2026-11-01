@@ -256,7 +256,7 @@
         var t = stockOfProduct(r.code).total;
         return '<span class="num" style="font-weight:600;color:' + (t === 0 ? '#d92d20' : 'inherit') + '">' + num(t) + '</span>';
       } },
-      { title: '30 天销量', cls: 't-right', cell: function (r) { return '<span class="num">' + num(r.sales) + '</span>'; } },
+      { title: '30 天销量', cls: 't-right', cell: function (r) { return '<span class="num">' + num(salesOfProduct(r.name)) + '</span>'; } },
       { title: '平台映射', cell: function (r) {
         var c = r.map === '3/3' ? 'green' : (r.map === '0/3' ? 'red' : 'orange');
         return tag(r.map, c);
