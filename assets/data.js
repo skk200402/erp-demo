@@ -54,6 +54,7 @@
 
   var RAW_ORDERS = [
     ['SO202610310001', '淘宝天猫', '旗舰店', '林小满', '待发货', '今天 14:32', [['2026春季纯棉圆领T恤', '白色 / S', 2, 129]], '尽快发货，客户催单'],
+  ['SO202610300118', '淘宝天猫', '旗舰店', '黄一诺', '已发货', '昨天 21:10', [['2026春季纯棉圆领T恤', '白色 / S', 1, 129]], ''],
   ];
 
   var ORDERS = RAW_ORDERS.map(function (r, idx) {
@@ -81,7 +82,7 @@
 
   /* ---------- 售后 ---------- */
   var AFTERSALES = [
-    { id: 'AS202610310031', order: 'SO202610310001', plat: '淘宝天猫', shop: '旗舰店', buyer: '林小满', type: '退货退款', amount: 258, reason: '尺码不合适', status: '待审核', time: '今天 12:32', deadline: '剩 1 天 4 小时' },
+    { id: 'AS202610310031', order: 'SO202610300118', plat: '淘宝天猫', shop: '旗舰店', buyer: '黄一诺', type: '退货退款', amount: 129, reason: '尺码不合适', status: '待审核', time: '今天 12:32', deadline: '剩 1 天 4 小时' },
   ];
   indexSearch(AFTERSALES, ['id', 'order', 'plat', 'shop', 'buyer', 'reason']);
 
@@ -127,7 +128,7 @@
 
   /* ---------- 物流 ---------- */
   var LOGISTICS = [
-    { waybill: 'SF7800137', order: 'SO202610310001', express: '顺丰速运', receiver: '林小满', city: '杭州 · 余杭区', track: '【杭州余杭】快件已揽收', status: '运输中', time: '刚刚', abnormal: false },
+    { waybill: 'SF780137', order: 'SO202610300118', express: '中通快递', receiver: '黄一诺', city: '深圳 · 南山区', track: '【深圳南山营业点】快件已揽收', status: '运输中', time: '昨天 21:40', abnormal: false },
   ];
   indexSearch(LOGISTICS, ['waybill', 'order', 'express', 'receiver', 'city', 'track']);
   LOGISTICS.forEach(function (r) { r.id = r.waybill; });
