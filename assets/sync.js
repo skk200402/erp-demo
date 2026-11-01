@@ -90,21 +90,14 @@
     return { done: done, dead: dead };
   };
 
-  Engine.prototype.run = function (job) {
-    job.attempts++;
-    var res;
-    try {
-      res = this.transport(job) || { ok: false, error: 'empty response', retryable: true };
-    } catch (e) {
-      res = { ok: false, error: e && e.message ? e.message : 'network error', retryable: true };
-    }
-
+  /** 统一结算：成功 / 重试 / 死信（同步与异步传输共用） */
+  Engine.prototype._settle = function (job, res) {
     if (res.ok) {
       job.status = 'done';
       job.doneAt = this.now();
       job.nextAt = 0;
       job.lastError = '';
-      this.log(job, 'success', res.platformId ? '平台受理 ' + res.platformId : '成功');
+      this.log(job, 'success', '平台受理 ' + (res.platformId || 'OK'));
       return 'done';
     }
 
@@ -124,6 +117,53 @@
     job.lastError = res.error || 'retry';
     this.log(job, 'retry', job.lastError + '，' + Math.round(delay / 1000) + 's 后重试（第 ' + job.attempts + ' 次）');
     return 'retry';
+  };
+
+  Engine.prototype.run = function (job) {
+    job.attempts++;
+    var res;
+    try {
+      res = this.transport(job) || { ok: false, error: 'empty response', retryable: true };
+    } catch (e) {
+      res = { ok: false, error: e && e.message ? e.message : 'network error', retryable: true };
+    }
+    if (res && typeof res.then === 'function') {
+      // 传输层是异步的，交给 runAsync 处理
+      job.attempts--;
+      return 'async';
+    }
+    return this._settle(job, res);
+  };
+
+  /** 异步传输：真实 HTTP 请求走这里 */
+  Engine.prototype.runAsync = function (job) {
+    var self = this;
+    job.attempts++;
+    return Promise.resolve()
+      .then(function () { return self.transport(job); })
+      .then(function (res) {
+        return self._settle(job, res || { ok: false, error: 'empty response', retryable: true });
+      })
+      .catch(function (e) {
+        return self._settle(job, { ok: false, error: (e && e.message) || 'network error', retryable: true });
+      });
+  };
+
+  /** 异步处理全部到期任务（真实网络请求用） */
+  Engine.prototype.drainAsync = function (t) {
+    var self = this;
+    var list = this.due(t);
+    var done = 0, dead = 0;
+    return list.reduce(function (p, j) {
+      return p.then(function () {
+        return self.runAsync(j).then(function (r) {
+          if (r === 'done') done++;
+          if (r === 'dead') dead++;
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      return { done: done, dead: dead };
+    });
   };
 
   /** 指数退避 + 抖动，避免同一时刻集体重试 */
