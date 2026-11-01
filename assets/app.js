@@ -3360,9 +3360,48 @@
     },
     'sync-drain': function () {
       if (!sync) { toast('同步引擎未就绪', 'err'); return; }
-      var r = drainSync();
-      if (ui.route === 'platform') renderMain();
-      toast('同步完成：成功 ' + r.done + '，死信 ' + r.dead);
+      toast(CONN.mode === 'http' ? '正在发送真实请求…' : '正在同步…');
+      drainSync().then(function (r) {
+        if (ui.route === 'platform') renderMain();
+        toast('同步完成：成功 ' + r.done + '，死信 ' + r.dead);
+      });
+    },
+    'conn-mode': function (el) {
+      CONN.mode = el.getAttribute('data-mode') || 'demo';
+      saveConn();
+      renderMain();
+      toast(CONN.mode === 'http' ? '已切换到真实 HTTP 模式，点「立即同步」会发出真实请求' : '已切回演示模式');
+    },
+    'conn-save': function () {
+      var u = document.getElementById('conn-url');
+      var t = document.getElementById('conn-token');
+      if (u) CONN.url = String(u.value || '').trim();
+      if (t) CONN.token = String(t.value || '').trim();
+      saveConn();
+      toast('连接配置已保存');
+    },
+    'conn-test': function () {
+      var u = document.getElementById('conn-url');
+      var t = document.getElementById('conn-token');
+      if (u) CONN.url = String(u.value || '').trim();
+      if (t) CONN.token = String(t.value || '').trim();
+      saveConn();
+      if (!CONN.url) { toast('请先填写接口地址', 'err'); return; }
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, Number(CONN.timeout) || 8000);
+      var t0 = Date.now();
+      toast('正在测试连接…');
+      fetch(CONN.url, {
+        method: 'OPTIONS',
+        headers: { 'Authorization': 'Bearer ' + (CONN.token || '') },
+        signal: ctrl.signal
+      }).then(function (res) {
+        clearTimeout(timer);
+        toast('连接正常：HTTP ' + res.status + '（' + (Date.now() - t0) + 'ms）');
+      }).catch(function (e) {
+        clearTimeout(timer);
+        toast('连接失败：' + ((e && e.name === 'AbortError') ? '超时' : (e.message || e)), 'err');
+      });
     },
     'sync-retry': function (el) {
       var id = el.getAttribute('data-id');
@@ -3516,7 +3555,24 @@
     PULL_ORDERS: '订单抓取'
   };
 
-  function platformTransport(job) {
+  /* 连接配置：演示模式（本地模拟）/ 真实 HTTP 模式（真实请求） */
+  var CONN_KEY = 'jy_erp_conn_v1';
+  var CONN = { mode: 'demo', url: 'https://httpbin.org/post', token: '', timeout: 8000 };
+  try {
+    var savedConn = JSON.parse(localStorage.getItem(CONN_KEY) || 'null');
+    if (savedConn && typeof savedConn === 'object') {
+      if (savedConn.mode) CONN.mode = savedConn.mode;
+      if (savedConn.url) CONN.url = savedConn.url;
+      if (typeof savedConn.token === 'string') CONN.token = savedConn.token;
+      if (savedConn.timeout) CONN.timeout = savedConn.timeout;
+    }
+  } catch (e) { /* ignore */ }
+
+  function saveConn() {
+    try { localStorage.setItem(CONN_KEY, JSON.stringify(CONN)); } catch (e) { /* ignore */ }
+  }
+
+  function demoTransport(job) {
     netCounter++;
     if (NET_MODE === 'down') {
       return { ok: false, error: '连接超时：ECONNRESET（模拟断网）', retryable: true };
@@ -3529,6 +3585,48 @@
       return { ok: false, error: '平台返回 400：缺少运单号', retryable: false };
     }
     return { ok: true, platformId: 'PL' + (100000 + netCounter) };
+  }
+
+  /* 真实 HTTP：POST 任务到配置的接口，把状态码映射成可重试 / 不可重试 */
+  async function httpTransport(job) {
+    if (!CONN.url) return { ok: false, error: '未配置接口地址', retryable: false };
+    var ctrl = new AbortController();
+    var timeout = Number(CONN.timeout) || 8000;
+    var timer = setTimeout(function () { ctrl.abort(); }, timeout);
+    var t0 = Date.now();
+    try {
+      var res = await fetch(CONN.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + (CONN.token || '')
+        },
+        body: JSON.stringify({ type: job.type, ref: job.ref, idemKey: job.idemKey, payload: job.payload }),
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+      var ms = Date.now() - t0;
+
+      if (res.status === 429) {
+        var ra = Number(res.headers.get('Retry-After')) || 5;
+        return { ok: false, error: 'HTTP 429 限流（Retry-After ' + ra + 's）', retryAfter: ra * 1000 };
+      }
+      if (res.status >= 500) return { ok: false, error: 'HTTP ' + res.status + ' 服务端错误', retryable: true };
+      if (!res.ok) return { ok: false, error: 'HTTP ' + res.status + ' 请求被拒绝', retryable: false };
+
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      return { ok: true, platformId: (data && (data.platformId || data.id)) || ('HTTP ' + res.status + ' · ' + ms + 'ms') };
+    } catch (e) {
+      clearTimeout(timer);
+      if (e && e.name === 'AbortError') return { ok: false, error: '请求超时（' + timeout + 'ms）', retryable: true };
+      return { ok: false, error: '网络错误：' + ((e && e.message) || e), retryable: true };
+    }
+  }
+
+  function platformTransport(job) {
+    if (CONN.mode === 'http') return httpTransport(job);
+    return demoTransport(job);
   }
 
   function initSync() {
@@ -3585,10 +3683,11 @@
   }
 
   function drainSync() {
-    if (!sync) return { done: 0, dead: 0 };
-    var r = sync.drain();
-    saveSync();
-    return r;
+    if (!sync) return Promise.resolve({ done: 0, dead: 0 });
+    return sync.drainAsync().then(function (r) {
+      saveSync();
+      return r;
+    });
   }
 
   /* ---------- 打印（隐藏 iframe，不污染主文档） ---------- */
