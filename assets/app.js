@@ -185,9 +185,6 @@
 
   var LOGIN_LOGS = [    { t: '今天 09:12', dev: 'Windows · Chrome 141', ip: '10.8.2.10', loc: '杭州', cur: true },
     { t: '昨天 20:31', dev: 'macOS · Safari 18', ip: '10.8.2.10', loc: '杭州', cur: false },
-    { t: '10-30 09:05', dev: 'iOS · 飞书 App', ip: '117.136.12.8', loc: '杭州', cur: false },
-    { t: '10-28 18:44', dev: 'Windows · Edge 141', ip: '10.8.3.22', loc: '上海', cur: false },
-    { t: '10-26 08:58', dev: 'Windows · Chrome 141', ip: '10.8.2.10', loc: '杭州', cur: false }
   ];
 
 
@@ -341,8 +338,8 @@
   var MENU = [
     { group: '概览', items: [{ key: 'dashboard', label: '工作台', ico: 'grid' }] },
     { group: '交易', items: [
-      { key: 'orders', label: '订单管理', ico: 'doc', badge: '87' },
-      { key: 'aftersale', label: '售后管理', ico: 'refresh', badge: '8' }
+      { key: 'orders', label: '订单管理', ico: 'doc', badge: function () { return String(ORDERS.filter(function (o) { return o.status === '待审核' || o.status === '待发货'; }).length); } },
+      { key: 'aftersale', label: '售后管理', ico: 'refresh', badge: function () { return String(AFTERSALES.filter(function (r) { return ['待审核', '待买家退货', '待收货', '退款中'].indexOf(r.status) > -1; }).length); } }
     ] },
     { group: '商品', items: [
       { key: 'products', label: '商品管理', ico: 'box' },
@@ -485,7 +482,7 @@
             '" data-action="nav" data-route="' + it.key + '" title="' + it.label + '">' +
             '<span class="ni-ico">' + icon(it.ico, 18) + '</span>' +
             '<span class="nav-label">' + it.label + '</span>' +
-            (it.badge ? '<span class="nav-badge">' + it.badge + '</span>' : '') +
+            (function () { var b = typeof it.badge === 'function' ? it.badge() : it.badge; return b && b !== '0' ? '<span class="nav-badge">' + b + '</span>' : ''; })() +
             '</a>';
         }).join('') +
         '</div>';
@@ -519,7 +516,7 @@
           '<div class="logo-name">s1 ERP<small>S1</small></div>' +
         '</div>' +
         '<nav class="nav">' + navHTML() + '</nav>' +
-        '<div class="sb-foot"><div class="store-pill"><i class="dot"></i><span><b>6</b> 个店铺在线</span></div></div>' +
+        '<div class="sb-foot"><div class="store-pill"><i class="dot"></i><span><b>' + SHOPS.filter(function (s) { return s.auth !== '已失效'; }).length + '</b> 个店铺在线</span></div></div>' +
       '</aside>' +
 
       '<div class="main">' +
@@ -2353,10 +2350,6 @@
   /* ---------- 系统设置 ---------- */
   var MEMBERS = [
     { name: '管理员', role: '超级管理员', dept: '总经办', last: '今天 09:12', status: '正常' },
-    { name: '林晓', role: '运营主管', dept: '电商运营', last: '今天 08:40', status: '正常' },
-    { name: '周鸣', role: '客服专员', dept: '客户服务', last: '今天 08:02', status: '正常' },
-    { name: '陈屿', role: '仓储管理员', dept: '仓储物流', last: '昨天 18:30', status: '正常' },
-    { name: '苏禾', role: '财务专员', dept: '财务部', last: '昨天 17:05', status: '已停用' }
   ];
   var LOGS = [
     { t: '今天 14:32', who: '林晓', mod: '订单', act: '批量发货 12 笔', ip: '10.8.2.31' },
